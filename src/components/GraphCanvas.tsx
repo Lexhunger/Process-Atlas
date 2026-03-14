@@ -15,11 +15,43 @@ import '@xyflow/react/dist/style.css';
 import { useGraphStore } from '../store/graphStore';
 import CustomNode from './CustomNode';
 import GroupNode from './GroupNode';
+import { MousePointer2 } from 'lucide-react';
 
 const nodeTypes = {
   customNode: CustomNode,
   groupNode: GroupNode,
 };
+
+function RemoteCursors() {
+  const { presence, user, cloudMode } = useGraphStore();
+  const { screenToFlowPosition } = useReactFlow();
+
+  if (!cloudMode) return null;
+
+  return (
+    <div className="absolute inset-0 pointer-events-none z-50 overflow-hidden">
+      {Object.entries(presence).map(([id, data]) => {
+        if (id === user?.uid || !data.cursor) return null;
+
+        return (
+          <div
+            key={id}
+            className="absolute transition-all duration-75 ease-linear flex items-center gap-2"
+            style={{
+              left: data.cursor.x,
+              top: data.cursor.y,
+            }}
+          >
+            <MousePointer2 className="w-5 h-5 text-indigo-500 fill-indigo-500" />
+            <div className="px-1.5 py-0.5 bg-indigo-500 text-white text-[10px] rounded whitespace-nowrap shadow-sm">
+              {data.name}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 function Flow() {
   const {
@@ -36,11 +68,31 @@ function Flow() {
     takeSnapshot,
     simulationActiveNodeId,
     isPresentationMode,
+    cloudMode,
+    updatePresence,
   } = useGraphStore();
 
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const [reactFlowInstance, setReactFlowInstance] = useState<any>(null);
-  const { setCenter } = useReactFlow();
+  const { setCenter, screenToFlowPosition } = useReactFlow();
+
+  const lastPresenceUpdate = useRef<number>(0);
+
+  // Cursor tracking
+  const onMouseMove = useCallback((event: React.MouseEvent) => {
+    if (!cloudMode || !reactFlowInstance) return;
+
+    const now = Date.now();
+    if (now - lastPresenceUpdate.current < 100) return; // 10fps max
+    lastPresenceUpdate.current = now;
+
+    const position = reactFlowInstance.screenToFlowPosition({
+      x: event.clientX,
+      y: event.clientY,
+    });
+
+    updatePresence(position);
+  }, [cloudMode, reactFlowInstance, updatePresence]);
 
   // Presentation Mode: Follow the active simulation node
   useEffect(() => {
@@ -224,7 +276,8 @@ function Flow() {
   );
 
   return (
-    <div className="w-full h-full" ref={reactFlowWrapper}>
+    <div className="w-full h-full relative" ref={reactFlowWrapper} onMouseMove={onMouseMove}>
+      <RemoteCursors />
       <ReactFlow
         nodes={filteredNodes}
         edges={edges}

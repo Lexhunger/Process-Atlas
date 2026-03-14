@@ -19,6 +19,7 @@ export default function TemplateManager({ onClose }: TemplateManagerProps) {
     setEditingTemplate({
       id: uuidv4(),
       name: 'New Template',
+      description: 'A new template for your processes.',
       nodeType: 'Custom',
       metadataSchema: [],
       defaultLinks: [],
@@ -110,6 +111,15 @@ export default function TemplateManager({ onClose }: TemplateManagerProps) {
                         type="text"
                         value={editingTemplate.name}
                         onChange={(e) => setEditingTemplate({ ...editingTemplate, name: e.target.value })}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Description</label>
+                      <input
+                        type="text"
+                        value={editingTemplate.description}
+                        onChange={(e) => setEditingTemplate({ ...editingTemplate, description: e.target.value })}
                         className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
                       />
                     </div>

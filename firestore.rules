@@ -1,0 +1,90 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "bmporter12@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isProjectMember(projectId) {
+      return isAuthenticated() && (
+        request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.members ||
+        isAdmin()
+      );
+    }
+
+    function isValidUsageLog(data) {
+      return data.keys().hasAll(['userId', 'model', 'totalTokens', 'timestamp']) &&
+             data.userId == request.auth.uid &&
+             data.totalTokens is number &&
+             data.timestamp is number;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /projects/{projectId} {
+      allow read: if isAuthenticated() && (request.auth.uid in resource.data.members || isAdmin());
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && (request.auth.uid in resource.data.members || isAdmin());
+      allow delete: if isAuthenticated() && (request.auth.uid == resource.data.ownerId || isAdmin());
+
+      match /graphs/{graphId} {
+        allow read, write: if isProjectMember(projectId);
+
+        match /nodes/{nodeId} {
+          allow read, write: if isProjectMember(projectId);
+        }
+
+        match /edges/{edgeId} {
+          allow read, write: if isProjectMember(projectId);
+        }
+      }
+
+      match /snapshots/{snapshotId} {
+        allow read: if isProjectMember(projectId);
+        allow create: if isProjectMember(projectId);
+        allow delete: if isProjectMember(projectId);
+      }
+
+      match /comments/{commentId} {
+        allow read: if isProjectMember(projectId);
+        allow create: if isProjectMember(projectId);
+        allow update, delete: if isProjectMember(projectId) && (request.auth.uid == resource.data.authorId || isAdmin());
+      }
+    }
+
+    match /templates/{templateId} {
+      allow read: if true; // Publicly readable
+      allow write: if isAdmin(); // Only admins can manage templates
+    }
+
+    match /presence/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner(userId);
+    }
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner(userId);
+    }
+
+    match /usage_logs/{logId} {
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated() && isValidUsageLog(request.resource.data);
+    }
+  }
+}

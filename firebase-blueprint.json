@@ -1,0 +1,181 @@
+{
+  "entities": {
+    "Project": {
+      "title": "Project",
+      "description": "A shared process mapping project",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Project name" },
+        "ownerId": { "type": "string", "description": "UID of the owner" },
+        "members": { "type": "array", "items": { "type": "string" }, "description": "List of member UIDs" },
+        "createdAt": { "type": "number", "description": "Creation timestamp" },
+        "updatedAt": { "type": "number", "description": "Last update timestamp" }
+      },
+      "required": ["name", "ownerId", "members", "createdAt", "updatedAt"]
+    },
+    "Graph": {
+      "title": "Graph",
+      "description": "A graph within a project (can be sub-process)",
+      "type": "object",
+      "properties": {
+        "projectId": { "type": "string", "description": "ID of the parent project" },
+        "parentNodeId": { "type": "string", "description": "ID of the node this graph belongs to (for drill-down)" },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["projectId", "createdAt", "updatedAt"]
+    },
+    "Node": {
+      "title": "Node",
+      "description": "A node in a graph",
+      "type": "object",
+      "properties": {
+        "graphId": { "type": "string" },
+        "position": { 
+          "type": "object",
+          "properties": {
+            "x": { "type": "number" },
+            "y": { "type": "number" }
+          }
+        },
+        "type": { "type": "string" },
+        "data": { "type": "object" },
+        "parentId": { "type": "string" }
+      },
+      "required": ["graphId", "position", "type", "data"]
+    },
+    "Edge": {
+      "title": "Edge",
+      "description": "An edge between nodes",
+      "type": "object",
+      "properties": {
+        "graphId": { "type": "string" },
+        "source": { "type": "string" },
+        "target": { "type": "string" },
+        "label": { "type": "string" },
+        "relationshipType": { "type": "string" },
+        "type": { "type": "string" }
+      },
+      "required": ["graphId", "source", "target"]
+    },
+    "Presence": {
+      "title": "Presence",
+      "description": "Real-time user status for collaboration",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "email": { "type": "string" },
+        "lastSeen": { "type": "number" },
+        "activeGraphId": { "type": "string" },
+        "cursor": {
+          "type": "object",
+          "properties": {
+            "x": { "type": "number" },
+            "y": { "type": "number" }
+          }
+        }
+      },
+      "required": ["userId", "lastSeen"]
+    },
+    "UsageLog": {
+      "title": "Usage Log",
+      "description": "Log of AI API usage",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "model": { "type": "string" },
+        "promptTokens": { "type": "number" },
+        "candidatesTokens": { "type": "number" },
+        "totalTokens": { "type": "number" },
+        "cost": { "type": "number" },
+        "timestamp": { "type": "number" },
+        "feature": { "type": "string", "description": "Which feature triggered the call" }
+      },
+      "required": ["userId", "model", "totalTokens", "timestamp"]
+    },
+    "Snapshot": {
+      "title": "Snapshot",
+      "description": "A saved version of a graph",
+      "type": "object",
+      "properties": {
+        "projectId": { "type": "string" },
+        "graphId": { "type": "string" },
+        "name": { "type": "string" },
+        "nodes": { "type": "array", "items": { "type": "object" } },
+        "edges": { "type": "array", "items": { "type": "object" } },
+        "createdBy": { "type": "string" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["projectId", "graphId", "name", "nodes", "edges", "createdBy", "timestamp"]
+    },
+    "Comment": {
+      "title": "Comment",
+      "description": "A comment on a node or edge",
+      "type": "object",
+      "properties": {
+        "projectId": { "type": "string" },
+        "graphId": { "type": "string" },
+        "targetId": { "type": "string", "description": "ID of node or edge" },
+        "text": { "type": "string" },
+        "authorId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "authorPhoto": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "resolved": { "type": "boolean" }
+      },
+      "required": ["projectId", "graphId", "targetId", "text", "authorId", "timestamp"]
+    },
+    "Template": {
+      "title": "Template",
+      "description": "A pre-built process template",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "category": { "type": "string" },
+        "nodes": { "type": "array", "items": { "type": "object" } },
+        "edges": { "type": "array", "items": { "type": "object" } },
+        "icon": { "type": "string" }
+      },
+      "required": ["name", "description", "nodes", "edges"]
+    }
+  },
+  "firestore": {
+    "/projects/{projectId}": {
+      "schema": "Project",
+      "description": "Shared projects"
+    },
+    "/projects/{projectId}/graphs/{graphId}": {
+      "schema": "Graph",
+      "description": "Graphs within a project"
+    },
+    "/projects/{projectId}/graphs/{graphId}/nodes/{nodeId}": {
+      "schema": "Node",
+      "description": "Nodes in a graph"
+    },
+    "/projects/{projectId}/graphs/{graphId}/edges/{edgeId}": {
+      "schema": "Edge",
+      "description": "Edges in a graph"
+    },
+    "/projects/{projectId}/snapshots/{snapshotId}": {
+      "schema": "Snapshot",
+      "description": "Project snapshots"
+    },
+    "/projects/{projectId}/comments/{commentId}": {
+      "schema": "Comment",
+      "description": "Collaboration comments"
+    },
+    "/templates/{templateId}": {
+      "schema": "Template",
+      "description": "Global process templates"
+    },
+    "/presence/{userId}": {
+      "schema": "Presence",
+      "description": "User presence data"
+    },
+    "/usage_logs/{logId}": {
+      "schema": "UsageLog",
+      "description": "AI usage logs"
+    }
+  }
+}

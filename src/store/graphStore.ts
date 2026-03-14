@@ -1,9 +1,12 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
-import { Project, Graph, AppNode, AppEdge, Template } from '../models/types';
+import { Project, Graph, AppNode, AppEdge, Template, Snapshot, Comment } from '../models/types';
 import { storageService } from '../services/storageService';
 import { geminiService } from '../services/geminiService';
 import { manualGenerator } from '../utils/manualGenerator';
+import { auth, signIn, logout, db } from '../services/firebase';
+import { User } from 'firebase/auth';
+import { collection, doc, setDoc, onSnapshot, writeBatch } from 'firebase/firestore';
 import { Node, Edge, Connection, addEdge, applyNodeChanges, applyEdgeChanges, NodeChange, EdgeChange, MarkerType } from '@xyflow/react';
 import dagre from 'dagre';
 
@@ -16,6 +19,8 @@ interface GraphStore {
   nodes: Node[];
   edges: Edge[];
   templates: Template[];
+  snapshots: Snapshot[];
+  comments: Comment[];
   
   selectedNodeId: string | null;
   selectedEdgeId: string | null;
@@ -28,6 +33,24 @@ interface GraphStore {
   simulationActiveNodeId: string | null;
   isSimulating: boolean;
   isPresentationMode: boolean;
+  
+  // Settings & Cloud
+  cloudMode: boolean;
+  selectedModel: string;
+  apiKeys: {
+    openai?: string;
+    anthropic?: string;
+    gemini?: string;
+  };
+  user: User | null;
+  isAuthReady: boolean;
+  presence: Record<string, { name: string; photoUrl: string; lastSeen: number; cursor?: { x: number; y: number } }>;
+  
+  setCloudMode: (enabled: boolean) => void;
+  setSelectedModel: (model: string) => void;
+  setApiKey: (provider: string, key: string) => void;
+  login: () => Promise<User | null>;
+  signOut: () => Promise<void>;
   
   undo: () => void;
   redo: () => void;
@@ -74,6 +97,7 @@ interface GraphStore {
   
   tidyUp: () => void;
   generateAIProcess: (prompt: string) => Promise<void>;
+  analyzeGitHubRepo: (repoUrl: string) => Promise<void>;
   autoTagNodes: () => Promise<void>;
   
   // Simulation
@@ -83,6 +107,16 @@ interface GraphStore {
   stepSimulation: () => void;
   
   generateManual: () => string | null;
+  syncGraph: (graphId: string) => (() => void) | void;
+  updatePresence: (cursor?: { x: number; y: number }) => Promise<void>;
+
+  // Snapshots & Comments
+  createSnapshot: (name: string) => Promise<void>;
+  restoreSnapshot: (snapshotId: string) => Promise<void>;
+  deleteSnapshot: (snapshotId: string) => Promise<void>;
+  addComment: (targetId: string, text: string) => Promise<void>;
+  resolveComment: (commentId: string) => Promise<void>;
+  deleteComment: (commentId: string) => Promise<void>;
 }
 
 export const useGraphStore = create<GraphStore>((set, get) => ({
@@ -94,6 +128,8 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   nodes: [],
   edges: [],
   templates: [],
+  snapshots: [],
+  comments: [],
   
   selectedNodeId: null,
   selectedEdgeId: null,
@@ -106,6 +142,55 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   simulationActiveNodeId: null as string | null,
   isSimulating: false,
   isPresentationMode: false,
+  
+  cloudMode: false,
+  selectedModel: localStorage.getItem('atlas_selected_model') || 'gemini-3-flash-preview',
+  apiKeys: JSON.parse(localStorage.getItem('atlas_api_keys') || '{}'),
+  user: null,
+  isAuthReady: false,
+  presence: {},
+
+  setCloudMode: (enabled: boolean) => {
+    if (enabled && !get().user) {
+      console.warn('Cloud mode requires authentication');
+      return;
+    }
+    set({ cloudMode: enabled });
+    localStorage.setItem('atlas_cloud_mode', String(enabled));
+    get().loadProjects();
+  },
+
+  setSelectedModel: (model: string) => {
+    set({ selectedModel: model });
+    localStorage.setItem('atlas_selected_model', model);
+  },
+
+  setApiKey: (provider: string, key: string) => {
+    const newKeys = { ...get().apiKeys, [provider]: key };
+    set({ apiKeys: newKeys });
+    localStorage.setItem('atlas_api_keys', JSON.stringify(newKeys));
+  },
+
+  login: async () => {
+    try {
+      const result = await signIn();
+      set({ user: result.user, isAuthReady: true });
+      return result.user;
+    } catch (error) {
+      console.error('Login failed', error);
+      return null;
+    }
+  },
+
+  signOut: async () => {
+    try {
+      await logout();
+      set({ user: null, cloudMode: false });
+      localStorage.setItem('atlas_cloud_mode', 'false');
+    } catch (error) {
+      console.error('Logout failed', error);
+    }
+  },
 
   takeSnapshot: () => {
     const { nodes, edges, past } = get();
@@ -140,6 +225,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     // Persist all nodes/edges to storage after undo
     const { activeGraphId } = get();
     if (activeGraphId) {
+      const { activeProjectId, cloudMode } = get();
       previous.nodes.forEach(n => {
         storageService.saveNode({
           id: n.id,
@@ -150,7 +236,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
           type: n.type || 'customNode',
           data: n.data as any,
           parentId: n.parentId
-        });
+        }, activeProjectId || undefined, cloudMode);
       });
       previous.edges.forEach(e => {
         storageService.saveEdge({
@@ -166,7 +252,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
           color: (e.data as any)?.color,
           hasArrow: (e.data as any)?.hasArrow !== false,
           relationshipType: (e.data as any)?.relationshipType
-        });
+        }, activeProjectId || undefined, cloudMode);
       });
     }
   },
@@ -188,6 +274,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     // Persist all nodes/edges to storage after redo
     const { activeGraphId } = get();
     if (activeGraphId) {
+      const { activeProjectId, cloudMode } = get();
       next.nodes.forEach(n => {
         storageService.saveNode({
           id: n.id,
@@ -198,7 +285,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
           type: n.type || 'customNode',
           data: n.data as any,
           parentId: n.parentId
-        });
+        }, activeProjectId || undefined, cloudMode);
       });
       next.edges.forEach(e => {
         storageService.saveEdge({
@@ -214,7 +301,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
           color: (e.data as any)?.color,
           hasArrow: (e.data as any)?.hasArrow !== false,
           relationshipType: (e.data as any)?.relationshipType
-        });
+        }, activeProjectId || undefined, cloudMode);
       });
     }
   },
@@ -225,24 +312,30 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   toggleDarkMode: () => set((state) => ({ darkMode: !state.darkMode })),
   
   loadProjects: async () => {
-    const projects = await storageService.getProjects();
+    const { cloudMode, user } = get();
+    const projects = await storageService.getProjects(cloudMode, user?.uid);
     set({ projects });
   },
   
   createProject: async (name: string) => {
+    const { cloudMode, user } = get();
     const newProject: Project = {
       id: uuidv4(),
       name,
+      ownerId: user?.uid || 'local-user',
+      members: user?.uid ? [user.uid] : ['local-user'],
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
-    await storageService.saveProject(newProject);
+    await storageService.saveProject(newProject, cloudMode);
     
     const rootGraph: Graph = {
       id: uuidv4(),
       projectId: newProject.id,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
     };
-    await storageService.saveGraph(rootGraph);
+    await storageService.saveGraph(rootGraph, cloudMode);
     
     set((state) => ({
       projects: [...state.projects, newProject],
@@ -252,7 +345,8 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   },
   
   loadProject: async (projectId: string) => {
-    const graphs = await storageService.getGraphsByProject(projectId);
+    const { cloudMode } = get();
+    const graphs = await storageService.getGraphsByProject(projectId, cloudMode);
     const rootGraph = graphs.find(g => !g.parentNodeId);
     
     if (rootGraph) {
@@ -264,8 +358,8 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       });
       
       // Load ALL nodes and edges for the project
-      const allAppNodes = await storageService.getAllProjectNodes(projectId);
-      const allAppEdges = await storageService.getAllProjectEdges(projectId);
+      const allAppNodes = await storageService.getNodesByGraph(rootGraph.id, projectId, cloudMode);
+      const allAppEdges = await storageService.getEdgesByGraph(rootGraph.id, projectId, cloudMode);
       
       // Build a map of graphId -> parentNodeId
       const graphToParentMap: Record<string, string> = {};
@@ -312,11 +406,16 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       }));
       
       set({ nodes, edges });
+      
+      if (cloudMode) {
+        get().syncGraph(rootGraph.id);
+      }
     }
   },
   
   deleteProject: async (projectId: string) => {
-    await storageService.deleteProject(projectId);
+    const { cloudMode } = get();
+    await storageService.deleteProject(projectId, cloudMode);
     set((state) => ({
       projects: state.projects.filter(p => p.id !== projectId),
       activeProjectId: state.activeProjectId === projectId ? null : state.activeProjectId,
@@ -327,8 +426,9 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   },
   
   loadGraph: async (graphId: string) => {
-    const appNodes = await storageService.getNodesByGraph(graphId);
-    const appEdges = await storageService.getEdgesByGraph(graphId);
+    const { activeProjectId, cloudMode } = get();
+    const appNodes = await storageService.getNodesByGraph(graphId, activeProjectId || undefined, cloudMode);
+    const appEdges = await storageService.getEdgesByGraph(graphId, activeProjectId || undefined, cloudMode);
     
     const nodes: Node[] = appNodes
       .sort((a, b) => {
@@ -379,17 +479,16 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   },
   
   onNodesChange: (changes: NodeChange[]) => {
-    set({
-      nodes: applyNodeChanges(changes, get().nodes),
-    });
+    const { nodes, activeGraphId, activeProjectId, cloudMode } = get();
+    const newNodes = applyNodeChanges(changes, nodes);
+    set({ nodes: newNodes });
     
     // Persist position/size changes
-    const { activeGraphId, nodes } = get();
     if (!activeGraphId) return;
     
     changes.forEach(async (change) => {
       if (change.type === 'position' || change.type === 'dimensions') {
-        const node = nodes.find(n => n.id === change.id);
+        const node = newNodes.find(n => n.id === change.id);
         if (node) {
           const appNode: AppNode = {
             id: node.id,
@@ -399,21 +498,32 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
             height: node.height,
             type: node.type || 'customNode',
             data: node.data as any,
+            parentId: node.parentId
           };
-          await storageService.saveNode(appNode);
+          await storageService.saveNode(appNode, activeProjectId || undefined, cloudMode);
         }
+      } else if (change.type === 'remove') {
+        await storageService.deleteNode(change.id, activeGraphId, activeProjectId || undefined, cloudMode);
       }
     });
   },
   
   onEdgesChange: (changes: EdgeChange[]) => {
-    set({
-      edges: applyEdgeChanges(changes, get().edges),
+    const { edges, activeGraphId, activeProjectId, cloudMode } = get();
+    const newEdges = applyEdgeChanges(changes, edges);
+    set({ edges: newEdges });
+    
+    if (!activeGraphId) return;
+    
+    changes.forEach(async (change) => {
+      if (change.type === 'remove') {
+        await storageService.deleteEdge(change.id, activeGraphId, activeProjectId || undefined, cloudMode);
+      }
     });
   },
   
   onConnect: async (connection: Connection) => {
-    const { activeGraphId, edges } = get();
+    const { activeGraphId, activeProjectId, edges, cloudMode } = get();
     if (!activeGraphId || !connection.source || !connection.target) return;
     
     get().takeSnapshot();
@@ -438,18 +548,18 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       graphId: activeGraphId,
       source: newEdge.source,
       target: newEdge.target,
-      sourceHandle: connection.sourceHandle,
-      targetHandle: connection.targetHandle,
+      sourceHandle: connection.sourceHandle || undefined,
+      targetHandle: connection.targetHandle || undefined,
       relationshipType: 'flow',
       label: 'flow',
       type: 'smoothstep',
       hasArrow: true
     };
-    await storageService.saveEdge(appEdge);
+    await storageService.saveEdge(appEdge, activeProjectId || undefined, cloudMode);
   },
   
   addNode: async (position: { x: number; y: number }, type: string = 'customNode', templateId?: string, shape?: string, parentId?: string) => {
-    const { activeGraphId, templates } = get();
+    const { activeGraphId, activeProjectId, cloudMode, templates } = get();
     if (!activeGraphId) return;
     
     get().takeSnapshot();
@@ -504,11 +614,11 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       data: newNode.data as any,
       parentId,
     };
-    await storageService.saveNode(appNode);
+    await storageService.saveNode(appNode, activeProjectId || undefined, cloudMode);
   },
   
   updateNodeData: async (id: string, data: any) => {
-    const { activeGraphId, nodes } = get();
+    const { activeGraphId, activeProjectId, cloudMode, nodes } = get();
     if (!activeGraphId) return;
     
     get().takeSnapshot();
@@ -527,13 +637,14 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
         height: updatedNode.height,
         type: updatedNode.type || 'customNode',
         data: updatedNode.data as any,
+        parentId: updatedNode.parentId
       };
-      await storageService.saveNode(appNode);
+      await storageService.saveNode(appNode, activeProjectId || undefined, cloudMode);
     }
   },
   
   updateEdgeLabel: async (id: string, label: string) => {
-    const { edges, activeGraphId } = get();
+    const { edges, activeGraphId, activeProjectId, cloudMode } = get();
     if (!activeGraphId) return;
     
     const edge = edges.find(e => e.id === id);
@@ -552,8 +663,8 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       graphId: activeGraphId,
       source: updatedEdge.source,
       target: updatedEdge.target,
-      sourceHandle: updatedEdge.sourceHandle,
-      targetHandle: updatedEdge.targetHandle,
+      sourceHandle: updatedEdge.sourceHandle || undefined,
+      targetHandle: updatedEdge.targetHandle || undefined,
       relationshipType: label,
       label: label,
       type: updatedEdge.type,
@@ -561,11 +672,11 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       animated: edge.animated,
       hasArrow: edge.data?.hasArrow as boolean | undefined
     };
-    await storageService.saveEdge(appEdge);
+    await storageService.saveEdge(appEdge, activeProjectId || undefined, cloudMode);
   },
 
   updateEdgeType: async (id: string, type: string) => {
-    const { edges, activeGraphId } = get();
+    const { edges, activeGraphId, activeProjectId, cloudMode } = get();
     if (!activeGraphId) return;
     
     const edge = edges.find(e => e.id === id);
@@ -584,8 +695,8 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       graphId: activeGraphId,
       source: updatedEdge.source,
       target: updatedEdge.target,
-      sourceHandle: updatedEdge.sourceHandle,
-      targetHandle: updatedEdge.targetHandle,
+      sourceHandle: updatedEdge.sourceHandle || undefined,
+      targetHandle: updatedEdge.targetHandle || undefined,
       relationshipType: (edge.data?.relationshipType as string) || 'flow',
       label: edge.label as string,
       type: type,
@@ -593,11 +704,11 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       animated: edge.animated,
       hasArrow: edge.data?.hasArrow as boolean | undefined
     };
-    await storageService.saveEdge(appEdge);
+    await storageService.saveEdge(appEdge, activeProjectId || undefined, cloudMode);
   },
 
   updateEdgeStyle: async (id: string, style: { color?: string; animated?: boolean; hasArrow?: boolean }) => {
-    const { edges, activeGraphId } = get();
+    const { edges, activeGraphId, activeProjectId, cloudMode } = get();
     if (!activeGraphId) return;
     
     const edge = edges.find(e => e.id === id);
@@ -627,8 +738,8 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       graphId: activeGraphId,
       source: updatedEdge.source,
       target: updatedEdge.target,
-      sourceHandle: updatedEdge.sourceHandle,
-      targetHandle: updatedEdge.targetHandle,
+      sourceHandle: updatedEdge.sourceHandle || undefined,
+      targetHandle: updatedEdge.targetHandle || undefined,
       relationshipType: currentData.relationshipType as string || 'flow',
       label: updatedEdge.label as string,
       type: updatedEdge.type,
@@ -636,11 +747,11 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       animated: newAnimated,
       hasArrow: newHasArrow
     };
-    await storageService.saveEdge(appEdge);
+    await storageService.saveEdge(appEdge, activeProjectId || undefined, cloudMode);
   },
 
   deleteNode: async (id: string) => {
-    const { nodes, edges } = get();
+    const { nodes, edges, activeGraphId, activeProjectId, cloudMode } = get();
     
     get().takeSnapshot();
     
@@ -651,12 +762,12 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     // Remove connected edges for node and its children
     const connectedEdges = edges.filter(e => idsToDelete.has(e.source) || idsToDelete.has(e.target));
     for (const edge of connectedEdges) {
-      await storageService.deleteEdge(edge.id);
+      await storageService.deleteEdge(edge.id, activeGraphId || '', activeProjectId || undefined, cloudMode);
     }
     
     // Delete nodes from storage
     for (const nodeId of idsToDelete) {
-      await storageService.deleteNode(nodeId);
+      await storageService.deleteNode(nodeId, activeGraphId || '', activeProjectId || undefined, cloudMode);
     }
     
     set((state) => ({
@@ -667,8 +778,9 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   },
   
   deleteEdge: async (id: string) => {
+    const { edges, activeGraphId, activeProjectId, cloudMode } = get();
     get().takeSnapshot();
-    await storageService.deleteEdge(id);
+    await storageService.deleteEdge(id, activeGraphId || '', activeProjectId || undefined, cloudMode);
     set((state) => ({
       edges: state.edges.filter(e => e.id !== id)
     }));
@@ -735,6 +847,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
 
     set({ nodes: [{ ...groupNode, selected: true }, ...updatedNodes], selectedNodeId: groupId });
 
+    const { activeProjectId, cloudMode } = get();
     const appGroupNode: AppNode = {
       id: groupId,
       graphId: activeGraphId,
@@ -744,7 +857,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       type: 'groupNode',
       data: groupNode.data as any,
     };
-    await storageService.saveNode(appGroupNode);
+    await storageService.saveNode(appGroupNode, activeProjectId || undefined, cloudMode);
 
     for (const n of updatedNodes) {
       if (n.parentId === groupId) {
@@ -758,13 +871,13 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
           data: n.data as any,
           parentId: n.parentId,
         };
-        await storageService.saveNode(appNode);
+        await storageService.saveNode(appNode, activeProjectId || undefined, cloudMode);
       }
     }
   },
 
   ungroupNodes: async () => {
-    const { nodes, activeGraphId } = get();
+    const { nodes, activeGraphId, activeProjectId, cloudMode } = get();
     if (!activeGraphId) return;
 
     const selectedGroups = nodes.filter(n => n.selected && n.type === 'groupNode');
@@ -797,7 +910,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     set({ nodes: updatedNodes });
 
     for (const groupId of groupIdsToDelete) {
-      await storageService.deleteNode(groupId);
+      await storageService.deleteNode(groupId, activeGraphId || '', activeProjectId || undefined, cloudMode);
     }
 
     for (const n of updatedNodes) {
@@ -817,7 +930,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
             data: n.data as any,
             parentId: undefined,
           };
-          await storageService.saveNode(appNode);
+          await storageService.saveNode(appNode, activeProjectId || undefined, cloudMode);
         }
       }
     }
@@ -853,7 +966,8 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   },
   
   importProject: async (data: string) => {
-    await storageService.importProject(data);
+    const { cloudMode } = get();
+    await storageService.importProject(data, cloudMode);
     await get().loadProjects();
   },
 
@@ -894,7 +1008,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     set({ nodes: newNodes });
     
     // Persist new positions
-    const { activeGraphId } = get();
+    const { activeGraphId, activeProjectId, cloudMode } = get();
     if (activeGraphId) {
       newNodes.forEach(n => {
         storageService.saveNode({
@@ -906,18 +1020,18 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
           type: n.type || 'customNode',
           data: n.data as any,
           parentId: n.parentId
-        });
+        }, activeProjectId || undefined, cloudMode);
       });
     }
   },
 
   generateAIProcess: async (prompt: string) => {
-    const { activeGraphId, nodes: currentNodes, edges: currentEdges } = get();
+    const { activeGraphId, nodes: currentNodes, edges: currentEdges, selectedModel } = get();
     if (!activeGraphId) return;
 
     get().takeSnapshot();
 
-    const result = await geminiService.generateProcess(prompt, { nodes: currentNodes, edges: currentEdges });
+    const result = await geminiService.generateProcess(prompt, { nodes: currentNodes, edges: currentEdges }, selectedModel);
     
     const idMap: Record<string, string> = {};
     const finalNewNodes: Node[] = [];
@@ -975,6 +1089,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     });
 
     // Persist new nodes
+    const { activeProjectId, cloudMode } = get();
     for (const n of finalNewNodes) {
       await storageService.saveNode({
         id: n.id,
@@ -982,7 +1097,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
         position: n.position,
         type: n.type || 'customNode',
         data: n.data as any,
-      });
+      }, activeProjectId || undefined, cloudMode);
     }
     // Persist new edges
     for (const e of finalNewEdges) {
@@ -995,15 +1110,106 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
         label: e.label as string,
         type: e.type,
         hasArrow: true
-      });
+      }, activeProjectId || undefined, cloudMode);
     }
 
     // Auto layout after generation
     get().tidyUp();
   },
 
+  analyzeGitHubRepo: async (repoUrl: string) => {
+    const { activeGraphId, selectedModel } = get();
+    if (!activeGraphId) return;
+
+    get().takeSnapshot();
+
+    try {
+      // Extract owner and repo from URL
+      const match = repoUrl.match(/github\.com\/([^/]+)\/([^/]+)/);
+      if (!match) throw new Error('Invalid GitHub URL');
+      const [, owner, repo] = match;
+
+      // Fetch repo structure (simplified for now)
+      const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents`);
+      if (!response.ok) throw new Error('Failed to fetch repository contents');
+      const contents = await response.json();
+      const repoStructure = contents.map((item: any) => `${item.type === 'dir' ? '[DIR]' : '[FILE]'} ${item.path}`).join('\n');
+
+      const result = await geminiService.analyzeRepo(repoStructure, selectedModel);
+      
+      const idMap: Record<string, string> = {};
+      const finalNewNodes: Node[] = [];
+
+      result.nodes.forEach((n, index) => {
+        const newId = uuidv4();
+        idMap[n.id] = newId;
+        
+        finalNewNodes.push({
+          id: newId,
+          type: 'customNode',
+          position: { x: 100, y: index * 150 },
+          data: {
+            title: n.title,
+            description: n.description,
+            nodeType: n.type,
+            shape: n.type === 'decision' ? 'diamond' : 'rectangle',
+            isExpanded: false,
+            tags: ['github-import'],
+            links: [],
+            codeSnippets: [],
+            metadata: {}
+          }
+        });
+      });
+
+      const finalNewEdges: Edge[] = result.edges.map(e => ({
+        id: uuidv4(),
+        source: idMap[e.source] || e.source,
+        target: idMap[e.target] || e.target,
+        label: e.label,
+        type: 'smoothstep',
+        markerEnd: { type: MarkerType.ArrowClosed, color: '#94a3b8' },
+        data: { relationshipType: e.label, hasArrow: true }
+      }));
+
+      set({ 
+        nodes: [...get().nodes, ...finalNewNodes], 
+        edges: [...get().edges, ...finalNewEdges] 
+      });
+
+      // Persist
+      const { activeProjectId, cloudMode } = get();
+      for (const n of finalNewNodes) {
+        await storageService.saveNode({
+          id: n.id,
+          graphId: activeGraphId,
+          position: n.position,
+          type: n.type || 'customNode',
+          data: n.data as any,
+        }, activeProjectId || undefined, cloudMode);
+      }
+      for (const e of finalNewEdges) {
+        await storageService.saveEdge({
+          id: e.id,
+          graphId: activeGraphId,
+          source: e.source,
+          target: e.target,
+          relationshipType: (e.data as any).relationshipType,
+          label: e.label as string,
+          type: e.type,
+          hasArrow: true
+        }, activeProjectId || undefined, cloudMode);
+      }
+
+      get().tidyUp();
+    } catch (error) {
+      console.error('Failed to analyze GitHub repo:', error);
+      alert('Failed to analyze GitHub repo. Make sure it is a public repository.');
+    }
+  },
+
   autoTagNodes: async () => {
-    const { nodes, activeGraphId } = get();
+    const { nodes, activeGraphId, selectedModel } = get();
     if (!activeGraphId || nodes.length === 0) return;
 
     const nodeData = nodes.map(n => ({
@@ -1016,7 +1222,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     Nodes: ${JSON.stringify(nodeData)}`;
 
     try {
-      const response = await geminiService.generateRaw(prompt);
+      const response = await geminiService.generateRaw(prompt, selectedModel);
       // Extract JSON from response (handle potential markdown blocks)
       const jsonMatch = response.match(/\{[\s\S]*\}/);
       if (!jsonMatch) return;
@@ -1041,6 +1247,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       set({ nodes: updatedNodes });
       
       // Persist changes
+      const { activeProjectId, cloudMode } = get();
       for (const node of updatedNodes) {
         if (tagMap[node.id]) {
           await storageService.saveNode({
@@ -1049,7 +1256,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
             position: node.position,
             type: node.type || 'customNode',
             data: node.data as any,
-          });
+          }, activeProjectId || undefined, cloudMode);
         }
       }
       
@@ -1139,5 +1346,212 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     }));
 
     return manualGenerator.generateMarkdown(project.name, appNodes, appEdges);
+  },
+
+  updatePresence: async (cursor?: { x: number; y: number }) => {
+    const { user, cloudMode, activeProjectId } = get();
+    if (!cloudMode || !activeProjectId || !user) return;
+
+    const presenceRef = doc(db, `projects/${activeProjectId}/presence`, user.uid);
+    await setDoc(presenceRef, {
+      name: user.displayName || 'Anonymous',
+      photoUrl: user.photoURL || '',
+      lastSeen: Date.now(),
+      cursor: cursor || null
+    }, { merge: true });
+  },
+
+  syncGraph: (graphId: string) => {
+    const { activeProjectId, cloudMode, user } = get();
+    if (!cloudMode || !activeProjectId) return;
+
+    // Listen for nodes
+    const nodesRef = collection(db, `projects/${activeProjectId}/graphs/${graphId}/nodes`);
+    const unsubNodes = onSnapshot(nodesRef, (snapshot) => {
+      const remoteNodes = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as AppNode));
+      
+      const mergedNodes = remoteNodes.map(rn => {
+        return {
+          id: rn.id,
+          type: rn.type,
+          position: rn.position,
+          data: rn.data,
+          width: rn.width,
+          height: rn.height,
+          parentId: rn.parentId,
+          extent: rn.parentId ? 'parent' : undefined,
+        } as Node;
+      });
+      
+      set({ nodes: mergedNodes });
+    });
+
+    // Listen for edges
+    const edgesRef = collection(db, `projects/${activeProjectId}/graphs/${graphId}/edges`);
+    const unsubEdges = onSnapshot(edgesRef, (snapshot) => {
+      const remoteEdges = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as AppEdge));
+      const mergedEdges = remoteEdges.map(re => ({
+        id: re.id,
+        source: re.source,
+        target: re.target,
+        sourceHandle: re.sourceHandle,
+        targetHandle: re.targetHandle,
+        label: re.label,
+        type: re.type,
+        animated: re.animated,
+        style: re.color ? { stroke: re.color, strokeWidth: 2 } : { strokeWidth: 2 },
+        markerEnd: re.hasArrow !== false ? { type: MarkerType.ArrowClosed, color: re.color || '#94a3b8' } : undefined,
+        data: { relationshipType: re.relationshipType, color: re.color, hasArrow: re.hasArrow !== false }
+      } as Edge));
+      
+      set({ edges: mergedEdges });
+    });
+
+    // Listen for presence
+    const presenceRef = collection(db, `projects/${activeProjectId}/presence`);
+    const unsubPresence = onSnapshot(presenceRef, (snapshot) => {
+      const presenceMap: Record<string, any> = {};
+      snapshot.docs.forEach(doc => {
+        // Only show users active in the last 5 minutes
+        const data = doc.data();
+        if (Date.now() - data.lastSeen < 300000) {
+          presenceMap[doc.id] = data;
+        }
+      });
+      set({ presence: presenceMap });
+    });
+
+    // Listen for snapshots
+    const snapshotsRef = collection(db, `projects/${activeProjectId}/snapshots`);
+    const unsubSnapshots = onSnapshot(snapshotsRef, (snapshot) => {
+      const updatedSnapshots = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Snapshot));
+      set({ snapshots: updatedSnapshots.sort((a, b) => b.timestamp - a.timestamp) });
+    });
+
+    // Listen for comments
+    const commentsRef = collection(db, `projects/${activeProjectId}/comments`);
+    const unsubComments = onSnapshot(commentsRef, (snapshot) => {
+      const updatedComments = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Comment));
+      set({ comments: updatedComments.sort((a, b) => b.timestamp - a.timestamp) });
+    });
+
+    // Update our own presence
+    get().updatePresence();
+
+    return () => {
+      unsubNodes();
+      unsubEdges();
+      unsubPresence();
+      unsubSnapshots();
+      unsubComments();
+    };
+  },
+
+  createSnapshot: async (name: string) => {
+    const { activeProjectId, activeGraphId, nodes, edges, user, cloudMode } = get();
+    if (!activeProjectId || !activeGraphId) return;
+
+    const snapshot: Snapshot = {
+      id: uuidv4(),
+      projectId: activeProjectId,
+      graphId: activeGraphId,
+      name,
+      nodes: JSON.parse(JSON.stringify(nodes)),
+      edges: JSON.parse(JSON.stringify(edges)),
+      createdBy: user?.uid || 'local-user',
+      timestamp: Date.now(),
+    };
+
+    await storageService.saveSnapshot(snapshot, cloudMode);
+    if (!cloudMode) {
+      set(state => ({ snapshots: [snapshot, ...state.snapshots] }));
+    }
+  },
+
+  restoreSnapshot: async (snapshotId: string) => {
+    const { snapshots, activeProjectId, activeGraphId, cloudMode } = get();
+    const snapshot = snapshots.find(s => s.id === snapshotId);
+    if (!snapshot || !activeProjectId || !activeGraphId) return;
+
+    get().takeSnapshot(); // Save current state to undo history
+
+    if (cloudMode) {
+      const batch = writeBatch(db);
+      
+      // Delete current
+      const currentNodes = await storageService.getNodesByGraph(activeGraphId, activeProjectId, true);
+      const currentEdges = await storageService.getEdgesByGraph(activeGraphId, activeProjectId, true);
+      
+      currentNodes.forEach(n => batch.delete(doc(db, `projects/${activeProjectId}/graphs/${activeGraphId}/nodes`, n.id)));
+      currentEdges.forEach(e => batch.delete(doc(db, `projects/${activeProjectId}/graphs/${activeGraphId}/edges`, e.id)));
+      
+      // Add from snapshot
+      snapshot.nodes.forEach(n => {
+        const { id, ...data } = n;
+        batch.set(doc(db, `projects/${activeProjectId}/graphs/${activeGraphId}/nodes`, id), data);
+      });
+      snapshot.edges.forEach(e => {
+        const { id, ...data } = e;
+        batch.set(doc(db, `projects/${activeProjectId}/graphs/${activeGraphId}/edges`, id), data);
+      });
+      
+      await batch.commit();
+    } else {
+      set({ nodes: snapshot.nodes, edges: snapshot.edges });
+    }
+  },
+
+  deleteSnapshot: async (snapshotId: string) => {
+    const { activeProjectId, cloudMode } = get();
+    if (!activeProjectId) return;
+    await storageService.deleteSnapshot(snapshotId, activeProjectId, cloudMode);
+    if (!cloudMode) {
+      set(state => ({ snapshots: state.snapshots.filter(s => s.id !== snapshotId) }));
+    }
+  },
+
+  addComment: async (targetId: string, text: string) => {
+    const { activeProjectId, activeGraphId, user, cloudMode } = get();
+    if (!activeProjectId || !activeGraphId) return;
+
+    const comment: Comment = {
+      id: uuidv4(),
+      projectId: activeProjectId,
+      graphId: activeGraphId,
+      targetId,
+      text,
+      authorId: user?.uid || 'local-user',
+      authorName: user?.displayName || 'Local User',
+      authorPhoto: user?.photoURL || undefined,
+      timestamp: Date.now(),
+      resolved: false,
+    };
+
+    await storageService.saveComment(comment, cloudMode);
+    if (!cloudMode) {
+      set(state => ({ comments: [comment, ...state.comments] }));
+    }
+  },
+
+  resolveComment: async (commentId: string) => {
+    const { activeProjectId, cloudMode, comments } = get();
+    if (!activeProjectId) return;
+    const comment = comments.find(c => c.id === commentId);
+    if (!comment) return;
+
+    const updatedComment = { ...comment, resolved: true };
+    await storageService.saveComment(updatedComment, cloudMode);
+    if (!cloudMode) {
+      set(state => ({ comments: state.comments.map(c => c.id === commentId ? updatedComment : c) }));
+    }
+  },
+
+  deleteComment: async (commentId: string) => {
+    const { activeProjectId, cloudMode } = get();
+    if (!activeProjectId) return;
+    await storageService.deleteComment(commentId, activeProjectId, cloudMode);
+    if (!cloudMode) {
+      set(state => ({ comments: state.comments.filter(c => c.id !== commentId) }));
+    }
   },
 }));

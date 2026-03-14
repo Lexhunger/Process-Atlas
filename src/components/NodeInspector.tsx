@@ -9,7 +9,7 @@ import { icons } from '../utils/icons';
 import Markdown from 'react-markdown';
 
 export default function NodeInspector() {
-  const { selectedNodeId, selectedEdgeId, nodes, edges, updateNodeData, updateEdgeLabel, updateEdgeType, updateEdgeStyle, selectNode, selectEdge, deleteNode, deleteEdge, activeProjectId, activeGraphId } = useGraphStore();
+  const { selectedNodeId, selectedEdgeId, nodes, edges, updateNodeData, updateEdgeLabel, updateEdgeType, updateEdgeStyle, selectNode, selectEdge, deleteNode, deleteEdge, activeProjectId, activeGraphId, cloudMode } = useGraphStore();
   const [activeTab, setActiveTab] = useState<'details' | 'links' | 'code'>('details');
   const [editingSnippetId, setEditingSnippetId] = useState<string | null>(null);
   const [targetGraphId, setTargetGraphId] = useState<string>('');
@@ -38,7 +38,7 @@ export default function NodeInspector() {
       data: node.data as any,
       parentId: targetParentId
     };
-    await storageService.saveNode(updatedNode);
+    await storageService.saveNode(updatedNode, activeProjectId || undefined, cloudMode);
     
     // Refresh the current graph to apply changes
     useGraphStore.setState((state) => ({
@@ -61,7 +61,7 @@ export default function NodeInspector() {
       extent: (targetParentId ? 'parent' : undefined) as any
     };
     
-    await storageService.saveNode(newNode as any);
+    await storageService.saveNode(newNode as any, activeProjectId || undefined, cloudMode);
     
     useGraphStore.setState((state) => ({
       nodes: [...state.nodes, newNode] as any

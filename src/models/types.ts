@@ -3,12 +3,16 @@ export interface Project {
   name: string;
   createdAt: number;
   updatedAt: number;
+  ownerId?: string;
+  members?: string[];
 }
 
 export interface Graph {
   id: string;
   projectId: string;
   parentNodeId?: string;
+  createdAt?: number;
+  updatedAt?: number;
 }
 
 export interface Link {
@@ -72,6 +76,7 @@ export interface AppEdge {
 export interface Template {
   id: string;
   name: string;
+  description: string;
   nodeType: string;
   metadataSchema: string[]; // Keys for metadata
   defaultLinks: Link[];
@@ -79,4 +84,28 @@ export interface Template {
   defaultDescription: string;
   icon?: string;
   iconUrl?: string;
+}
+
+export interface Snapshot {
+  id: string;
+  projectId: string;
+  graphId: string;
+  name: string;
+  nodes: any[];
+  edges: any[];
+  createdBy: string;
+  timestamp: number;
+}
+
+export interface Comment {
+  id: string;
+  projectId: string;
+  graphId: string;
+  targetId: string;
+  text: string;
+  authorId: string;
+  authorName: string;
+  authorPhoto?: string;
+  timestamp: number;
+  resolved: boolean;
 }
