@@ -6,6 +6,7 @@ import { icons } from '../utils/icons';
 
 export default function CustomNode({ id, data, selected }: { id: string; data: NodeData; selected: boolean }) {
   const updateNodeData = useGraphStore((state) => state.updateNodeData);
+  const drillDown = useGraphStore((state) => state.drillDown);
   const nodes = useGraphStore((state) => state.nodes);
   const simulationActiveNodeId = useGraphStore((state) => state.simulationActiveNodeId);
   
@@ -15,7 +16,7 @@ export default function CustomNode({ id, data, selected }: { id: string; data: N
   
   const toggleExpand = (e: React.MouseEvent) => {
     e.stopPropagation();
-    updateNodeData(id, { isExpanded: !isExpanded });
+    drillDown(id);
   };
 
   const childCount = nodes.filter(n => n.parentId === id).length;
@@ -75,9 +76,10 @@ export default function CustomNode({ id, data, selected }: { id: string; data: N
         <Handle type="source" position={Position.Bottom} id="bottom" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-20" />
         <Handle type="target" position={Position.Left} id="left" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-20" />
         <div
-          className={`w-full h-full rounded-xl border-2 bg-slate-50/50 dark:bg-slate-900/50 backdrop-blur-sm transition-colors flex flex-col ${
+          className={`w-full h-full rounded-xl border-2 backdrop-blur-sm transition-colors flex flex-col relative ${
             selected ? 'border-indigo-500 ring-2 ring-indigo-200 dark:ring-indigo-900/50' : 'border-slate-300 dark:border-slate-700 border-dashed'
           }`}
+          style={{ backgroundColor: data.color ? `${data.color}80` : undefined }}
         >
           <div className="px-4 py-2 bg-white/80 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between rounded-t-lg">
             <div className="flex items-center gap-2">
@@ -106,6 +108,14 @@ export default function CustomNode({ id, data, selected }: { id: string; data: N
           <div className="flex-1 p-4 pointer-events-none">
             {/* Children will be rendered here by React Flow */}
           </div>
+          {selected && (
+            <div className="absolute bottom-1 right-1 pointer-events-none text-indigo-400 opacity-50">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="21" y1="21" x2="12" y2="12" />
+                <line x1="21" y1="16" x2="16" y2="21" />
+              </svg>
+            </div>
+          )}
         </div>
       </>
     );
@@ -137,7 +147,7 @@ export default function CustomNode({ id, data, selected }: { id: string; data: N
     'min-w-[150px] p-3'
   }`;
 
-  const bgClasses = `absolute inset-0 border-2 bg-white dark:bg-slate-800 shadow-md transition-all ${
+  const bgClasses = `absolute inset-0 border-2 shadow-md transition-all ${
     selected ? 'border-indigo-500 shadow-lg ring-2 ring-indigo-200 dark:ring-indigo-900/50' : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
   } ${
     isSimulationActive ? 'ring-4 ring-emerald-400 dark:ring-emerald-500 ring-offset-2 dark:ring-offset-slate-900 z-50 animate-pulse' : ''
@@ -159,11 +169,15 @@ export default function CustomNode({ id, data, selected }: { id: string; data: N
   }`;
 
   const getStyle = () => {
-    if (isHexagon) return { clipPath: 'polygon(10% 0, 90% 0, 100% 50%, 90% 100%, 10% 100%, 0 50%)' };
-    if (isDocument) return { clipPath: 'polygon(0 0, calc(100% - 24px) 0, 100% 24px, 100% 100%, 0 100%)' };
-    if (isCylinder) return { borderRadius: '50% / 15px' };
-    if (isGear) return { borderStyle: 'dashed', borderWidth: '4px' };
-    return {};
+    const style: any = { backgroundColor: data.color || undefined };
+    if (isHexagon) style.clipPath = 'polygon(10% 0, 90% 0, 100% 50%, 90% 100%, 10% 100%, 0 50%)';
+    if (isDocument) style.clipPath = 'polygon(0 0, calc(100% - 24px) 0, 100% 24px, 100% 100%, 0 100%)';
+    if (isCylinder) style.borderRadius = '50% / 15px';
+    if (isGear) {
+      style.borderStyle = 'dashed';
+      style.borderWidth = '4px';
+    }
+    return style;
   };
 
   return (

@@ -2,7 +2,9 @@ import { Layers, Settings as SettingsIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useGraphStore } from '../store/graphStore';
 import { auth } from '../services/firebase';
+import { storageService } from '../services/storageService';
 import { onAuthStateChanged } from 'firebase/auth';
+
 import GraphCanvas from '../components/GraphCanvas';
 import NodeInspector from '../components/NodeInspector';
 import BreadcrumbNav from '../components/BreadcrumbNav';
@@ -18,13 +20,26 @@ import { TaskExportModal } from '../components/TaskExportModal';
 import { AnimatePresence } from 'motion/react';
 
 export default function ProjectView() {
-  const { loadProjects, activeProjectId, activeGraphId, cloudMode, darkMode, setCloudMode, syncGraph, user } = useGraphStore();
+  const { loadProjects, activeProjectId, activeGraphId, cloudMode, darkMode, setCloudMode, syncGraph, user, isOnline } = useGraphStore();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isMonitoringOpen, setIsMonitoringOpen] = useState(false);
   const [isSnapshotsOpen, setIsSnapshotsOpen] = useState(false);
   const [isCommentsOpen, setIsCommentsOpen] = useState(false);
   const [isTemplatesOpen, setIsTemplatesOpen] = useState(false);
   const [isTaskExportOpen, setIsTaskExportOpen] = useState(false);
+
+  useEffect(() => {
+    const handleOnline = () => useGraphStore.setState({ isOnline: true });
+    const handleOffline = () => useGraphStore.setState({ isOnline: false });
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
@@ -59,6 +74,13 @@ export default function ProjectView() {
       };
     }
   }, [cloudMode, activeGraphId, syncGraph]);
+
+  // Sync pending writes when online and in cloud mode
+  useEffect(() => {
+    if (cloudMode && isOnline && activeProjectId) {
+      storageService.syncPendingWrites(activeProjectId, true);
+    }
+  }, [cloudMode, isOnline, activeProjectId]);
 
   return (
     <div className={`flex flex-col h-screen w-full overflow-hidden font-sans ${darkMode ? 'dark bg-slate-900 text-slate-100' : 'bg-slate-100 text-slate-900'}`}>

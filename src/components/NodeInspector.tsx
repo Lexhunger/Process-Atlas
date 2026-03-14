@@ -1,20 +1,42 @@
 import { useState, useEffect } from 'react';
 import { useGraphStore } from '../store/graphStore';
-import { X, Plus, Trash2, Link as LinkIcon, Layers, Edit2, Check, ExternalLink, Copy, MoveRight, Image as ImageIcon, Eye, Type } from 'lucide-react';
+import { X, Plus, Trash2, Link as LinkIcon, Layers, Edit2, Check, ExternalLink, Copy, MoveRight, Image as ImageIcon, Eye, Type, Palette, ChevronDown, Settings as SettingsIcon } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import CodeSnippetViewer from './CodeSnippetViewer';
 import { storageService } from '../services/storageService';
 import IconPicker from './IconPicker';
 import { icons } from '../utils/icons';
 import Markdown from 'react-markdown';
+import { PASTEL_COLORS } from '../constants';
 
 export default function NodeInspector() {
-  const { selectedNodeId, selectedEdgeId, nodes, edges, updateNodeData, updateEdgeLabel, updateEdgeType, updateEdgeStyle, selectNode, selectEdge, deleteNode, deleteEdge, activeProjectId, activeGraphId, cloudMode } = useGraphStore();
+  const { 
+    selectedNodeId, 
+    selectedEdgeId, 
+    nodes, 
+    edges, 
+    updateNodeData, 
+    updateEdgeLabel, 
+    updateEdgeType, 
+    updateEdgeStyle, 
+    selectNode, 
+    selectEdge, 
+    deleteNode, 
+    deleteEdge, 
+    activeProjectId, 
+    activeGraphId, 
+    cloudMode,
+    nodeTypes,
+    addNodeType,
+    issueManagementConfigs
+  } = useGraphStore();
   const [activeTab, setActiveTab] = useState<'details' | 'links' | 'code'>('details');
   const [editingSnippetId, setEditingSnippetId] = useState<string | null>(null);
   const [targetGraphId, setTargetGraphId] = useState<string>('');
   const [showIconPicker, setShowIconPicker] = useState(false);
   const [isPreviewingMarkdown, setIsPreviewingMarkdown] = useState(false);
+  const [showTypeInput, setShowTypeInput] = useState(false);
+  const [newTypeName, setNewTypeName] = useState('');
 
   const node = nodes.find((n) => n.id === selectedNodeId);
   const edge = edges.find((e) => e.id === selectedEdgeId);
@@ -308,6 +330,34 @@ export default function NodeInspector() {
               </div>
 
               <div>
+                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-2 flex items-center gap-1">
+                  <Palette className="w-3 h-3" /> Color
+                </label>
+                <div className="grid grid-cols-5 gap-2">
+                  <button
+                    onClick={() => handleChange('color', undefined)}
+                    className={`w-full aspect-square rounded-md border-2 flex items-center justify-center transition-all ${
+                      !data.color ? 'border-indigo-500 ring-2 ring-indigo-100 dark:ring-indigo-900/30' : 'border-slate-200 dark:border-slate-700 hover:border-slate-300'
+                    }`}
+                    title="Default"
+                  >
+                    <div className="w-4 h-4 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-sm" />
+                  </button>
+                  {PASTEL_COLORS.map((color) => (
+                    <button
+                      key={color.value}
+                      onClick={() => handleChange('color', color.value)}
+                      className={`w-full aspect-square rounded-md border-2 transition-all ${
+                        data.color === color.value ? 'border-indigo-500 ring-2 ring-indigo-100 dark:ring-indigo-900/30' : 'border-transparent hover:scale-105'
+                      }`}
+                      style={{ backgroundColor: color.value }}
+                      title={color.name}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <div>
                 <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Shape</label>
                 <select
                   value={data.shape || 'rectangle'}
@@ -324,17 +374,96 @@ export default function NodeInspector() {
                   <option value="document">Document</option>
                   <option value="component">Component</option>
                   <option value="gear">Gear</option>
+                  <option value="jira">Issue Ticket</option>
                 </select>
               </div>
 
+              {data.shape === 'jira' && (
+                <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-lg space-y-3">
+                  <div className="flex items-center gap-2 text-blue-700 dark:text-blue-400 font-bold text-[10px] uppercase tracking-wider">
+                    <SettingsIcon className="w-3 h-3" /> Issue Management Configuration
+                  </div>
+                  
+                  <div>
+                    <label className="block text-[10px] font-medium text-blue-600 dark:text-blue-500 mb-1 uppercase">Instance</label>
+                    <select
+                      value={data.issueConfigId || ''}
+                      onChange={(e) => handleChange('issueConfigId', e.target.value)}
+                      className="w-full px-2 py-1.5 text-xs bg-white dark:bg-slate-800 border border-blue-200 dark:border-blue-800 text-slate-900 dark:text-slate-100 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    >
+                      <option value="">Select instance...</option>
+                      {issueManagementConfigs.map(config => (
+                        <option key={config.id} value={config.id}>{config.name} ({config.provider})</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-medium text-blue-600 dark:text-blue-500 mb-1 uppercase">Ticket ID</label>
+                    <input
+                      type="text"
+                      value={data.issueId || ''}
+                      onChange={(e) => handleChange('issueId', e.target.value)}
+                      placeholder="e.g., PROJ-123"
+                      className="w-full px-2 py-1.5 text-xs bg-white dark:bg-slate-800 border border-blue-200 dark:border-blue-800 text-slate-900 dark:text-slate-100 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Type</label>
-                <input
-                  type="text"
-                  value={data.nodeType || ''}
-                  onChange={(e) => handleChange('nodeType', e.target.value)}
-                  className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
+                <div className="flex gap-2">
+                  <select
+                    value={data.nodeType || ''}
+                    onChange={(e) => {
+                      if (e.target.value === 'ADD_NEW') {
+                        setShowTypeInput(true);
+                      } else {
+                        handleChange('nodeType', e.target.value);
+                      }
+                    }}
+                    className="flex-1 px-3 py-2 text-sm bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="">None</option>
+                    {nodeTypes.map(type => (
+                      <option key={type} value={type}>{type}</option>
+                    ))}
+                    <option value="ADD_NEW" className="text-indigo-600 font-bold">+ Add New Type...</option>
+                  </select>
+                </div>
+                
+                {showTypeInput && (
+                  <div className="mt-2 flex gap-2">
+                    <input
+                      type="text"
+                      value={newTypeName}
+                      onChange={(e) => setNewTypeName(e.target.value)}
+                      placeholder="New type name..."
+                      className="flex-1 px-3 py-1.5 text-sm bg-white dark:bg-slate-800 border border-indigo-300 dark:border-indigo-700 text-slate-900 dark:text-slate-100 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      autoFocus
+                    />
+                    <button
+                      onClick={() => {
+                        if (newTypeName.trim()) {
+                          addNodeType(newTypeName.trim());
+                          handleChange('nodeType', newTypeName.trim());
+                          setNewTypeName('');
+                          setShowTypeInput(false);
+                        }
+                      }}
+                      className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-bold rounded-md hover:bg-indigo-700"
+                    >
+                      Add
+                    </button>
+                    <button
+                      onClick={() => setShowTypeInput(false)}
+                      className="px-3 py-1.5 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold rounded-md hover:bg-slate-300 dark:hover:bg-slate-600"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div>

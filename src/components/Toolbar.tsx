@@ -48,11 +48,18 @@ export default function Toolbar({
     generateManual,
     autoTagNodes,
     analyzeGitHubRepo,
+    activeGraphId,
+    githubToken,
+    setGithubToken,
     user,
     login,
     signOut,
     cloudMode,
-    setCloudMode
+    setCloudMode,
+    devMode,
+    isOnline,
+    exportFormat,
+    setExportFormat
   } = useGraphStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const toolsRef = useRef<HTMLDivElement>(null);
@@ -65,6 +72,9 @@ export default function Toolbar({
   const [isToolsOpen, setIsToolsOpen] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
   const [githubUrl, setGithubUrl] = useState('');
+  const [githubRepos, setGithubRepos] = useState<any[]>([]);
+  const [isLoadingRepos, setIsLoadingRepos] = useState(false);
+  const [importMode, setImportMode] = useState<'new' | 'current'>('new');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isOptimizeModalOpen, setIsOptimizeModalOpen] = useState(false);
   const [optimizePrompt, setOptimizePrompt] = useState('');
@@ -124,8 +134,6 @@ export default function Toolbar({
   const selectedNodes = nodes.filter(n => n.selected);
   const canGroup = selectedNodes.length >= 2 && selectedNodes.every(n => !n.parentId);
   const canUngroup = selectedNodes.length > 0 && selectedNodes.some(n => n.type === 'groupNode');
-
-  const [exportFormat, setExportFormat] = useState<'json' | 'xml'>('json');
 
   const handleExport = async () => {
     const data = await exportProject(exportFormat);
@@ -213,16 +221,94 @@ export default function Toolbar({
     if (!githubUrl.trim()) return;
     setIsGenerating(true);
     try {
-      await analyzeGitHubRepo(githubUrl);
+      await analyzeGitHubRepo(githubUrl, importMode);
       setIsGitHubModalOpen(false);
       setGithubUrl('');
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      alert("Failed to analyze GitHub repository. Please try again.");
+      alert(error.message || "Failed to analyze GitHub repository. Please try again.");
     } finally {
       setIsGenerating(false);
     }
   };
+
+  const handleConnectGitHub = async () => {
+    try {
+      const response = await fetch('/api/auth/github/url');
+      if (!response.ok) {
+        throw new Error('Failed to get auth URL');
+      }
+      const { url } = await response.json();
+
+      const authWindow = window.open(
+        url,
+        'github_oauth',
+        'width=600,height=700'
+      );
+
+      if (!authWindow) {
+        alert('Please allow popups for this site to connect your GitHub account.');
+      }
+    } catch (error) {
+      console.error('GitHub OAuth error:', error);
+      alert('Failed to initiate GitHub connection.');
+    }
+  };
+
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      const origin = event.origin;
+      if (!origin.endsWith('.run.app') && !origin.includes('localhost')) {
+        return;
+      }
+      if (event.data?.type === 'GITHUB_AUTH_SUCCESS') {
+        setGithubToken(event.data.token);
+      }
+    };
+    
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'atlas_github_token' && e.newValue) {
+        setGithubToken(e.newValue);
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+    window.addEventListener('storage', handleStorage);
+    return () => {
+      window.removeEventListener('message', handleMessage);
+      window.removeEventListener('storage', handleStorage);
+    };
+  }, [setGithubToken]);
+
+  useEffect(() => {
+    if (isGitHubModalOpen && githubToken) {
+      const fetchRepos = async () => {
+        setIsLoadingRepos(true);
+        try {
+          const res = await fetch('https://api.github.com/user/repos?sort=updated&per_page=100', {
+            headers: {
+              'Authorization': `token ${githubToken}`,
+              'Accept': 'application/vnd.github.v3+json'
+            }
+          });
+          if (res.ok) {
+            const data = await res.json();
+            setGithubRepos(data);
+            if (data.length > 0 && !githubUrl) {
+              setGithubUrl(data[0].html_url);
+            }
+          } else if (res.status === 401) {
+            setGithubToken(null);
+          }
+        } catch (err) {
+          console.error('Failed to fetch repos', err);
+        } finally {
+          setIsLoadingRepos(false);
+        }
+      };
+      fetchRepos();
+    }
+  }, [isGitHubModalOpen, githubToken]);
 
   return (
     <div className="flex items-center justify-between h-14 px-6 bg-slate-900 text-white shadow-md z-20 relative">
@@ -234,6 +320,12 @@ export default function Toolbar({
       </div>
 
       <div className="flex items-center gap-6">
+        {!isOnline && (
+          <div className="flex items-center gap-2 px-3 py-1 bg-amber-500/10 border border-amber-500/20 rounded-full">
+            <div className="w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
+            <span className="text-[10px] font-bold text-amber-500 uppercase tracking-wider">Offline Mode</span>
+          </div>
+        )}
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
@@ -375,65 +467,95 @@ export default function Toolbar({
 
                   <button
                     onClick={() => {
+                      if (!isOnline) return;
                       setIsAIModalOpen(true);
                       setIsToolsOpen(false);
                     }}
-                    className="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium text-emerald-400 hover:bg-emerald-900/20 rounded-lg transition-colors group"
+                    disabled={!isOnline}
+                    className={`w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors group ${
+                      isOnline ? 'text-emerald-400 hover:bg-emerald-900/20' : 'text-slate-600 cursor-not-allowed'
+                    }`}
                   >
-                    <div className="w-8 h-8 bg-emerald-500/10 rounded-lg flex items-center justify-center group-hover:bg-emerald-500/20 transition-colors">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
+                      isOnline ? 'bg-emerald-500/10 group-hover:bg-emerald-500/20' : 'bg-slate-800'
+                    }`}>
                       <Sparkles className="w-4 h-4" />
                     </div>
                     <div className="flex flex-col items-start">
                       <span>AI Generate</span>
-                      <span className="text-[10px] text-slate-500 font-normal">Build process with AI</span>
+                      <span className="text-[10px] text-slate-500 font-normal">
+                        {isOnline ? 'Build process with AI' : 'Requires internet'}
+                      </span>
                     </div>
                   </button>
 
                   <button
                     onClick={() => {
+                      if (!isOnline) return;
                       setIsOptimizeModalOpen(true);
                       setIsToolsOpen(false);
                     }}
-                    className="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium text-amber-400 hover:bg-amber-900/20 rounded-lg transition-colors group"
+                    disabled={!isOnline}
+                    className={`w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors group ${
+                      isOnline ? 'text-amber-400 hover:bg-amber-900/20' : 'text-slate-600 cursor-not-allowed'
+                    }`}
                   >
-                    <div className="w-8 h-8 bg-amber-500/10 rounded-lg flex items-center justify-center group-hover:bg-amber-500/20 transition-colors">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
+                      isOnline ? 'bg-amber-500/10 group-hover:bg-amber-500/20' : 'bg-slate-800'
+                    }`}>
                       <Zap className="w-4 h-4" />
                     </div>
                     <div className="flex flex-col items-start">
                       <span>AI Optimize</span>
-                      <span className="text-[10px] text-slate-500 font-normal">Improve efficiency</span>
+                      <span className="text-[10px] text-slate-500 font-normal">
+                        {isOnline ? 'Improve efficiency' : 'Requires internet'}
+                      </span>
                     </div>
                   </button>
 
                   <button
                     onClick={() => {
+                      if (!isOnline) return;
                       autoTagNodes();
                       setIsToolsOpen(false);
                     }}
-                    className="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium text-indigo-400 hover:bg-indigo-900/20 rounded-lg transition-colors group"
+                    disabled={!isOnline}
+                    className={`w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors group ${
+                      isOnline ? 'text-indigo-400 hover:bg-indigo-900/20' : 'text-slate-600 cursor-not-allowed'
+                    }`}
                   >
-                    <div className="w-8 h-8 bg-indigo-500/10 rounded-lg flex items-center justify-center group-hover:bg-indigo-500/20 transition-colors">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
+                      isOnline ? 'bg-indigo-500/10 group-hover:bg-indigo-500/20' : 'bg-slate-800'
+                    }`}>
                       <Tags className="w-4 h-4" />
                     </div>
                     <div className="flex flex-col items-start">
                       <span>AI Auto-Tag</span>
-                      <span className="text-[10px] text-slate-500 font-normal">Categorize steps</span>
+                      <span className="text-[10px] text-slate-500 font-normal">
+                        {isOnline ? 'Categorize steps' : 'Requires internet'}
+                      </span>
                     </div>
                   </button>
 
                   <button
                     onClick={() => {
+                      if (!isOnline) return;
                       setIsGitHubModalOpen(true);
                       setIsToolsOpen(false);
                     }}
-                    className="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium text-slate-300 hover:bg-slate-800 rounded-lg transition-colors group"
+                    disabled={!isOnline}
+                    className={`w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors group ${
+                      isOnline ? 'text-slate-300 hover:bg-slate-800' : 'text-slate-600 cursor-not-allowed'
+                    }`}
                   >
                     <div className="w-8 h-8 bg-slate-800 rounded-lg flex items-center justify-center group-hover:bg-slate-700 transition-colors">
                       <Github className="w-4 h-4" />
                     </div>
                     <div className="flex flex-col items-start">
                       <span>GitHub Import</span>
-                      <span className="text-[10px] text-slate-500 font-normal">Map repo architecture</span>
+                      <span className="text-[10px] text-slate-500 font-normal">
+                        {isOnline ? 'Map repo architecture' : 'Requires internet'}
+                      </span>
                     </div>
                   </button>
 
@@ -630,25 +752,34 @@ export default function Toolbar({
               </button>
             ) : (
               <button
-                onClick={login}
-                className="flex items-center gap-2 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-md transition-colors ml-2"
+                onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
+                className="flex items-center justify-center p-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-md transition-colors"
               >
-                <LogIn className="w-3.5 h-3.5" /> Sign In
+                <User className="w-5 h-5" />
               </button>
             )}
 
             {/* Dropdown Menu */}
-            {isUserMenuOpen && user && (
+            {isUserMenuOpen && (
               <div className="absolute right-0 mt-2 w-64 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl py-2 z-[100] animate-in fade-in slide-in-from-top-2 duration-200">
-                <div className="px-4 py-3 border-b border-slate-800 mb-2">
-                  <div className="flex items-center gap-3">
-                    <img src={user.photoURL || ''} alt="" className="w-10 h-10 rounded-full border border-slate-700" />
-                    <div className="flex flex-col overflow-hidden">
-                      <span className="text-sm font-bold text-white truncate">{user.displayName}</span>
-                      <span className="text-xs text-slate-500 truncate">{user.email}</span>
+                {user ? (
+                  <div className="px-4 py-3 border-b border-slate-800 mb-2">
+                    <div className="flex items-center gap-3">
+                      <img src={user.photoURL || ''} alt="" className="w-10 h-10 rounded-full border border-slate-700" />
+                      <div className="flex flex-col overflow-hidden">
+                        <span className="text-sm font-bold text-white truncate">{user.displayName}</span>
+                        <span className="text-xs text-slate-500 truncate">{user.email}</span>
+                      </div>
                     </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="px-4 py-3 border-b border-slate-800 mb-2">
+                    <div className="flex flex-col">
+                      <span className="text-sm font-bold text-white">Not Signed In</span>
+                      <span className="text-xs text-slate-500">Sign in to sync to cloud</span>
+                    </div>
+                  </div>
+                )}
 
                 <div className="px-2 space-y-1">
                   <button
@@ -667,15 +798,21 @@ export default function Toolbar({
 
                   <button
                     onClick={() => {
+                      if (!isOnline) return;
                       setCloudMode(!cloudMode);
                       setIsUserMenuOpen(false);
                     }}
-                    className="w-full flex items-center gap-3 px-3 py-2 text-sm text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+                    disabled={!isOnline}
+                    className={`w-full flex items-center gap-3 px-3 py-2 text-sm rounded-lg transition-colors ${
+                      isOnline ? 'text-slate-300 hover:text-white hover:bg-slate-800' : 'text-slate-600 cursor-not-allowed'
+                    }`}
                   >
-                    <Cloud className={`w-4 h-4 ${cloudMode ? 'text-emerald-400' : 'text-slate-500'}`} />
+                    <Cloud className={`w-4 h-4 ${cloudMode && !devMode ? 'text-emerald-400' : 'text-slate-500'}`} />
                     <div className="flex flex-col items-start">
                       <span>Cloud Sync</span>
-                      <span className="text-[10px] text-slate-500">{cloudMode ? 'Syncing to Firestore' : 'Local storage only'}</span>
+                      <span className="text-[10px] text-slate-500">
+                        {isOnline ? (cloudMode ? (devMode ? 'Paused (Dev Mode)' : 'Syncing to Firestore') : 'Local storage only') : 'Requires internet'}
+                      </span>
                     </div>
                   </button>
 
@@ -692,16 +829,29 @@ export default function Toolbar({
                 </div>
 
                 <div className="mt-2 pt-2 border-t border-slate-800 px-2">
-                  <button
-                    onClick={() => {
-                      signOut();
-                      setIsUserMenuOpen(false);
-                    }}
-                    className="w-full flex items-center gap-3 px-3 py-2 text-sm text-red-400 hover:text-red-300 hover:bg-red-900/20 rounded-lg transition-colors"
-                  >
-                    <LogOut className="w-4 h-4" />
-                    <span>Sign Out</span>
-                  </button>
+                  {user ? (
+                    <button
+                      onClick={() => {
+                        signOut();
+                        setIsUserMenuOpen(false);
+                      }}
+                      className="w-full flex items-center gap-3 px-3 py-2 text-sm text-red-400 hover:text-red-300 hover:bg-red-900/20 rounded-lg transition-colors"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      <span>Sign Out</span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={async () => {
+                        await login();
+                        setIsUserMenuOpen(false);
+                      }}
+                      className="w-full flex items-center gap-3 px-3 py-2 text-sm text-indigo-400 hover:text-indigo-300 hover:bg-indigo-900/20 rounded-lg transition-colors"
+                    >
+                      <LogIn className="w-4 h-4" />
+                      <span>Sign In</span>
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -893,7 +1043,7 @@ export default function Toolbar({
                 </div>
                 <div>
                   <h2 className="text-xl font-bold text-white">GitHub Repository Import</h2>
-                  <p className="text-sm text-slate-400">Map out the architecture of a public repository.</p>
+                  <p className="text-sm text-slate-400">Map out the architecture of a repository.</p>
                 </div>
               </div>
               <button 
@@ -905,19 +1055,106 @@ export default function Toolbar({
             </div>
             <div className="p-6">
               <div className="space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 mb-2 uppercase">Repository URL</label>
-                  <input
-                    type="text"
-                    value={githubUrl}
-                    onChange={(e) => setGithubUrl(e.target.value)}
-                    placeholder="https://github.com/owner/repo"
-                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
-                    autoFocus
-                  />
+                {githubToken ? (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 mb-2 uppercase">Select Repository</label>
+                    {isLoadingRepos ? (
+                      <div className="text-sm text-slate-400 py-2">Loading repositories...</div>
+                    ) : (
+                      <select
+                        value={githubUrl}
+                        onChange={(e) => setGithubUrl(e.target.value)}
+                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                      >
+                        <option value="">-- Select a repository --</option>
+                        {githubRepos.map((repo: any) => (
+                          <option key={repo.id} value={repo.html_url}>
+                            {repo.full_name} {repo.private ? '(Private)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    <div className="mt-3">
+                      <label className="block text-xs font-bold text-slate-400 mb-2 uppercase">Or Enter URL Manually</label>
+                      <input
+                        type="text"
+                        value={githubUrl}
+                        onChange={(e) => setGithubUrl(e.target.value)}
+                        placeholder="https://github.com/owner/repo"
+                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 mb-2 uppercase">Repository URL</label>
+                    <input
+                      type="text"
+                      value={githubUrl}
+                      onChange={(e) => setGithubUrl(e.target.value)}
+                      placeholder="https://github.com/owner/repo"
+                      className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                      autoFocus
+                    />
+                  </div>
+                )}
+
+                {activeGraphId && (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 mb-2 uppercase">Import Destination</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => setImportMode('new')}
+                        className={`px-4 py-2 text-xs font-bold rounded-xl border transition-all ${
+                          importMode === 'new' 
+                            ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-900/20' 
+                            : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600'
+                        }`}
+                      >
+                        New Project
+                      </button>
+                      <button
+                        onClick={() => setImportMode('current')}
+                        className={`px-4 py-2 text-xs font-bold rounded-xl border transition-all ${
+                          importMode === 'current' 
+                            ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-900/20' 
+                            : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600'
+                        }`}
+                      >
+                        Current Project
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <div className="pt-2">
+                  <label className="block text-xs font-bold text-slate-400 mb-2 uppercase">GitHub Connection</label>
+                  {githubToken ? (
+                    <div className="flex items-center justify-between bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-4 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+                        <span className="text-xs font-medium text-emerald-400">Connected to GitHub</span>
+                      </div>
+                      <button 
+                        onClick={() => setGithubToken(null)}
+                        className="text-[10px] font-bold text-slate-500 hover:text-slate-300 uppercase tracking-wider"
+                      >
+                        Disconnect
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={handleConnectGitHub}
+                      className="w-full flex items-center justify-center gap-2 bg-slate-800 border border-slate-700 hover:bg-slate-700 text-white px-4 py-2.5 rounded-xl text-xs font-bold transition-all"
+                    >
+                      <Github className="w-4 h-4" />
+                      Connect GitHub for Private Repos
+                    </button>
+                  )}
                 </div>
+
                 <p className="text-[10px] text-slate-500 leading-relaxed italic">
-                  Note: This will fetch the root directory structure and use AI to generate a high-level architecture graph. Currently supports public repositories only.
+                  Note: This will fetch the root directory structure and use AI to generate a high-level architecture graph. {githubToken ? 'Private repositories are supported while connected.' : 'Currently supports public repositories only.'}
                 </p>
               </div>
               <div className="mt-6 flex items-center justify-end gap-3">

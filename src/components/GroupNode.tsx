@@ -6,13 +6,15 @@ import { icons } from '../utils/icons';
 
 export default function GroupNode({ id, data, selected }: { id: string; data: NodeData; selected: boolean }) {
   const updateNodeData = useGraphStore((state) => state.updateNodeData);
+  const drillDown = useGraphStore((state) => state.drillDown);
   const nodes = useGraphStore((state) => state.nodes);
   const simulationActiveNodeId = useGraphStore((state) => state.simulationActiveNodeId);
   
   const isSimulationActive = simulationActiveNodeId === id;
 
-  const toggleCollapse = () => {
-    updateNodeData(id, { isCollapsed: !data.isCollapsed });
+  const toggleCollapse = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    drillDown(id);
   };
 
   const childCount = nodes.filter(n => n.parentId === id).length;
@@ -69,11 +71,12 @@ export default function GroupNode({ id, data, selected }: { id: string; data: No
       <Handle type="source" position={Position.Bottom} id="bottom" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-20" />
       <Handle type="target" position={Position.Left} id="left" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-20" />
       <div
-        className={`w-full h-full rounded-xl border-2 bg-slate-50/50 dark:bg-slate-900/50 backdrop-blur-sm transition-colors ${
+        className={`w-full h-full rounded-xl border-2 backdrop-blur-sm transition-colors relative ${
           selected ? 'border-indigo-500 ring-2 ring-indigo-200 dark:ring-indigo-900/50' : 'border-slate-300 dark:border-slate-700 border-dashed'
         } ${
           isSimulationActive ? 'ring-4 ring-emerald-400 dark:ring-emerald-500 ring-offset-2 dark:ring-offset-slate-900 z-50 animate-pulse' : ''
         }`}
+        style={{ backgroundColor: data.color ? `${data.color}80` : undefined }}
       >
         <div className={`px-4 py-2 bg-white/80 dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 flex items-center justify-between ${
           data.isCollapsed ? 'rounded-xl h-full' : 'rounded-t-lg border-b'
@@ -98,6 +101,14 @@ export default function GroupNode({ id, data, selected }: { id: string; data: No
             {data.isCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           </button>
         </div>
+        {selected && !data.isCollapsed && (
+          <div className="absolute bottom-1 right-1 pointer-events-none text-indigo-400 opacity-50">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="21" y1="21" x2="12" y2="12" />
+              <line x1="21" y1="16" x2="16" y2="21" />
+            </svg>
+          </div>
+        )}
       </div>
     </>
   );

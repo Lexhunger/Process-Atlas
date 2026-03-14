@@ -20,7 +20,9 @@ service cloud.firestore {
 
     function isProjectMember(projectId) {
       return isAuthenticated() && (
-        request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.members ||
+        exists(/databases/$(database)/documents/projects/$(projectId)) &&
+        (request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.members ||
+         request.auth.uid == get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId) ||
         isAdmin()
       );
     }
@@ -37,9 +39,9 @@ service cloud.firestore {
     // ===============================================================
 
     match /projects/{projectId} {
-      allow read: if isAuthenticated() && (request.auth.uid in resource.data.members || isAdmin());
+      allow read: if isAuthenticated() && (request.auth.uid in resource.data.members || request.auth.uid == resource.data.ownerId || isAdmin());
       allow create: if isAuthenticated();
-      allow update: if isAuthenticated() && (request.auth.uid in resource.data.members || isAdmin());
+      allow update: if isAuthenticated() && (request.auth.uid in resource.data.members || request.auth.uid == resource.data.ownerId || isAdmin());
       allow delete: if isAuthenticated() && (request.auth.uid == resource.data.ownerId || isAdmin());
 
       match /graphs/{graphId} {
@@ -65,6 +67,11 @@ service cloud.firestore {
         allow create: if isProjectMember(projectId);
         allow update, delete: if isProjectMember(projectId) && (request.auth.uid == resource.data.authorId || isAdmin());
       }
+
+      match /presence/{userId} {
+        allow read: if isProjectMember(projectId);
+        allow write: if isOwner(userId);
+      }
     }
 
     match /templates/{templateId} {
@@ -72,14 +79,16 @@ service cloud.firestore {
       allow write: if isAdmin(); // Only admins can manage templates
     }
 
-    match /presence/{userId} {
-      allow read: if isAuthenticated();
-      allow write: if isOwner(userId);
-    }
-
     match /users/{userId} {
-      allow read: if isAuthenticated();
-      allow write: if isOwner(userId);
+      allow read, write: if isOwner(userId);
+
+      match /settings/{settingId} {
+        allow read, write: if isOwner(userId) && request.resource.data.keys().hasOnly(['nodeTypes']);
+      }
+
+      match /{document=**} {
+        allow read, write: if isOwner(userId);
+      }
     }
 
     match /usage_logs/{logId} {

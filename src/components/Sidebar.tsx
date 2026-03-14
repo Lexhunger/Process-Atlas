@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useGraphStore } from '../store/graphStore';
-import { Folder, Plus, Trash2, FileText, Layers, Settings, Square, Diamond, Circle, Hexagon, ArrowRightLeft, Database, File, MousePointerClick, LayoutTemplate } from 'lucide-react';
+import { Folder, Plus, Trash2, FileText, Layers, Settings, Square, Diamond, Circle, Hexagon, ArrowRightLeft, Database, File, MousePointerClick, LayoutTemplate, Cloud, CloudOff, RefreshCw } from 'lucide-react';
 import TemplateManager from './TemplateManager';
 import { icons } from '../utils/icons';
 
 export default function Sidebar() {
-  const { projects, activeProjectId, createProject, loadProject, deleteProject, templates, loadTemplates } = useGraphStore();
+  const { projects, activeProjectId, createProject, loadProject, deleteProject, toggleProjectLocalOnly, templates, loadTemplates, issueManagementConfigs, cloudMode, devMode } = useGraphStore();
   const [newProjectName, setNewProjectName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [isTemplateManagerOpen, setIsTemplateManagerOpen] = useState(false);
@@ -77,16 +77,41 @@ export default function Sidebar() {
                 <Folder className={`w-4 h-4 mr-2 ${activeProjectId === project.id ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-500'}`} />
                 <span className="truncate text-sm">{project.name}</span>
               </div>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  deleteProject(project.id);
-                }}
-                className="p-1 text-slate-400 opacity-0 group-hover:opacity-100 hover:text-red-600 dark:hover:text-red-400 rounded transition-all"
-                title="Delete Project"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
+              <div className="flex items-center opacity-0 group-hover:opacity-100 transition-all">
+                {!project.isLocalOnly && cloudMode && !devMode && (
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      const { storageService } = await import('../services/storageService');
+                      await storageService.syncProjectToCloud(project.id);
+                    }}
+                    className="p-1 mr-1 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded transition-all"
+                    title="Force Sync to Cloud"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleProjectLocalOnly(project.id);
+                  }}
+                  className={`p-1 mr-1 rounded transition-all ${project.isLocalOnly ? 'text-amber-500 hover:text-amber-600 dark:hover:text-amber-400' : 'text-emerald-500 hover:text-emerald-600 dark:hover:text-emerald-400'}`}
+                  title={project.isLocalOnly ? "Local Only (Click to Sync)" : "Synced to Cloud (Click to make Local Only)"}
+                >
+                  {project.isLocalOnly ? <CloudOff className="w-3.5 h-3.5" /> : <Cloud className="w-3.5 h-3.5" />}
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteProject(project.id);
+                  }}
+                  className="p-1 text-slate-400 hover:text-red-600 dark:hover:text-red-400 rounded transition-all"
+                  title="Delete Project"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
           ))}
           {projects.length === 0 && !isCreating && (
@@ -262,6 +287,22 @@ export default function Sidebar() {
               <p className="text-xs text-slate-500 dark:text-slate-400">Business Rule / Logic</p>
             </div>
           </div>
+
+          {issueManagementConfigs.length > 0 && (
+            <div
+              className="flex items-center p-3 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-lg shadow-sm cursor-grab hover:border-indigo-400 dark:hover:border-indigo-500 hover:shadow-md transition-all"
+              onDragStart={(event) => onDragStart(event, 'jiraNode', undefined, 'jira')}
+              draggable
+            >
+              <div className="w-8 h-8 bg-indigo-600 rounded flex items-center justify-center mr-3 text-white font-bold text-xs">
+                I
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-indigo-900 dark:text-indigo-100">Issue Node</h3>
+                <p className="text-xs text-indigo-600 dark:text-indigo-400">Live integration</p>
+              </div>
+            </div>
+          )}
 
           {templates.length > 0 && (
             <div className="pt-4 pb-2">

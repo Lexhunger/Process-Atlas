@@ -1,5 +1,6 @@
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { db, auth } from './firebase';
+import { auth } from './firebase';
+
+import { storageService } from './storageService';
 
 export interface UsageLog {
   userId: string;
@@ -40,10 +41,6 @@ export const usageService = {
       feature
     };
 
-    try {
-      await addDoc(collection(db, 'usage_logs'), log);
-    } catch (error) {
-      console.error('Failed to log usage', error);
-    }
+    await storageService.queueWrite('logUsage', log, 'usage_logs');
   }
 };

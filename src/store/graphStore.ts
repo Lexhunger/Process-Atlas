@@ -1,14 +1,20 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
-import { Project, Graph, AppNode, AppEdge, Template, Snapshot, Comment } from '../models/types';
+import { debounce } from 'lodash';
+import { Project, Graph, AppNode, AppEdge, Template, Snapshot, Comment, IssueManagementConfig, Settings } from '../models/types';
 import { storageService } from '../services/storageService';
 import { geminiService } from '../services/geminiService';
 import { manualGenerator } from '../utils/manualGenerator';
 import { auth, signIn, logout, db } from '../services/firebase';
 import { User } from 'firebase/auth';
 import { collection, doc, setDoc, onSnapshot, writeBatch } from 'firebase/firestore';
+
 import { Node, Edge, Connection, addEdge, applyNodeChanges, applyEdgeChanges, NodeChange, EdgeChange, MarkerType } from '@xyflow/react';
 import dagre from 'dagre';
+
+const debouncedSaveNode = debounce((node: AppNode, projectId?: string, cloudMode = false) => {
+  storageService.saveNode(node, projectId, cloudMode);
+}, 500);
 
 interface GraphStore {
   projects: Project[];
@@ -24,6 +30,7 @@ interface GraphStore {
   
   selectedNodeId: string | null;
   selectedEdgeId: string | null;
+  focusNodeId: string | null;
   searchQuery: string;
   darkMode: boolean;
   
@@ -35,7 +42,11 @@ interface GraphStore {
   isPresentationMode: boolean;
   
   // Settings & Cloud
+  nodeTypes: string[];
+  issueManagementConfigs: IssueManagementConfig[];
+  issueManagementInstanceTypes: string[];
   cloudMode: boolean;
+  devMode: boolean;
   selectedModel: string;
   apiKeys: {
     openai?: string;
@@ -44,13 +55,22 @@ interface GraphStore {
   };
   user: User | null;
   isAuthReady: boolean;
+  isOnline: boolean;
   presence: Record<string, { name: string; photoUrl: string; lastSeen: number; cursor?: { x: number; y: number } }>;
+  githubToken: string | null;
+  setGithubToken: (token: string | null) => void;
   
   setCloudMode: (enabled: boolean) => void;
+  setDevMode: (enabled: boolean) => void;
   setSelectedModel: (model: string) => void;
   setApiKey: (provider: string, key: string) => void;
   login: () => Promise<User | null>;
   signOut: () => Promise<void>;
+  
+  addNodeType: (type: string) => void;
+  addIssueManagementConfig: (config: Omit<IssueManagementConfig, 'id'>) => void;
+  updateIssueManagementConfig: (id: string, config: Partial<IssueManagementConfig>) => void;
+  removeIssueManagementConfig: (id: string) => void;
   
   undo: () => void;
   redo: () => void;
@@ -61,13 +81,17 @@ interface GraphStore {
   // Actions
   toggleDarkMode: () => void;
   loadProjects: () => Promise<void>;
+  loadSettings: () => Promise<void>;
   createProject: (name: string) => Promise<void>;
   loadProject: (projectId: string) => Promise<void>;
   deleteProject: (projectId: string) => Promise<void>;
+  toggleProjectLocalOnly: (projectId: string) => Promise<void>;
   
   loadGraph: (graphId: string) => Promise<void>;
   drillDown: (nodeId: string) => Promise<void>;
   navigateUp: (index: number) => Promise<void>;
+  setFocusNodeId: (id: string | null) => void;
+  autoResizeParent: (parentId: string) => Promise<void>;
   
   onNodesChange: (changes: NodeChange[]) => void;
   onEdgesChange: (changes: EdgeChange[]) => void;
@@ -92,12 +116,14 @@ interface GraphStore {
   saveTemplate: (template: Template) => Promise<void>;
   deleteTemplate: (id: string) => Promise<void>;
   
+  exportFormat: 'json' | 'xml';
+  setExportFormat: (format: 'json' | 'xml') => void;
   exportProject: (format?: 'json' | 'xml') => Promise<string | null>;
   importProject: (data: string) => Promise<void>;
   
   tidyUp: () => void;
   generateAIProcess: (prompt: string) => Promise<void>;
-  analyzeGitHubRepo: (repoUrl: string) => Promise<void>;
+  analyzeGitHubRepo: (repoUrl: string, mode?: 'new' | 'current') => Promise<void>;
   autoTagNodes: () => Promise<void>;
   
   // Simulation
@@ -119,7 +145,16 @@ interface GraphStore {
   deleteComment: (commentId: string) => Promise<void>;
 }
 
-export const useGraphStore = create<GraphStore>((set, get) => ({
+export const useGraphStore = create<GraphStore>((set, get) => {
+  const shouldSyncProject = (projectId?: string) => {
+    const { cloudMode, devMode, projects } = get();
+    if (!cloudMode || devMode) return false;
+    if (!projectId) return true;
+    const project = projects.find(p => p.id === projectId);
+    return project ? !project.isLocalOnly : true;
+  };
+
+  return {
   projects: [],
   activeProjectId: null,
   activeGraphId: null,
@@ -133,6 +168,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   
   selectedNodeId: null,
   selectedEdgeId: null,
+  focusNodeId: null,
   searchQuery: '',
   darkMode: false,
   
@@ -143,12 +179,29 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   isSimulating: false,
   isPresentationMode: false,
   
-  cloudMode: false,
+  nodeTypes: ['Process', 'Action', 'Decision', 'Data', 'System', 'User', 'External'],
+  issueManagementConfigs: [],
+  issueManagementInstanceTypes: ['HREGRC', 'THREGRC'],
+  cloudMode: localStorage.getItem('atlas_cloud_mode') === 'true',
+  devMode: localStorage.getItem('atlas_dev_mode') === 'true',
   selectedModel: localStorage.getItem('atlas_selected_model') || 'gemini-3-flash-preview',
   apiKeys: JSON.parse(localStorage.getItem('atlas_api_keys') || '{}'),
   user: null,
   isAuthReady: false,
+  isOnline: navigator.onLine,
   presence: {},
+  githubToken: localStorage.getItem('atlas_github_token'),
+  exportFormat: 'json',
+  setExportFormat: (format: 'json' | 'xml') => set({ exportFormat: format }),
+
+  setGithubToken: (token: string | null) => {
+    set({ githubToken: token });
+    if (token) {
+      localStorage.setItem('atlas_github_token', token);
+    } else {
+      localStorage.removeItem('atlas_github_token');
+    }
+  },
 
   setCloudMode: (enabled: boolean) => {
     if (enabled && !get().user) {
@@ -157,6 +210,12 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     }
     set({ cloudMode: enabled });
     localStorage.setItem('atlas_cloud_mode', String(enabled));
+    get().loadProjects();
+  },
+
+  setDevMode: (enabled: boolean) => {
+    set({ devMode: enabled });
+    localStorage.setItem('atlas_dev_mode', String(enabled));
     get().loadProjects();
   },
 
@@ -190,6 +249,35 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     } catch (error) {
       console.error('Logout failed', error);
     }
+  },
+
+  addNodeType: (type: string) => {
+    const { cloudMode, user } = get();
+    const newNodeTypes = [...new Set([...get().nodeTypes, type])];
+    set({ nodeTypes: newNodeTypes });
+    storageService.saveSettings('nodeTypes', newNodeTypes, cloudMode, user?.uid);
+  },
+
+  addIssueManagementConfig: (config: Omit<IssueManagementConfig, 'id'>) => {
+    const { cloudMode, user } = get();
+    const newConfig = { ...config, id: uuidv4() };
+    const newConfigs = [...get().issueManagementConfigs, newConfig];
+    set({ issueManagementConfigs: newConfigs });
+    storageService.saveSettings('issueManagementConfigs', newConfigs, cloudMode, user?.uid);
+  },
+
+  updateIssueManagementConfig: (id: string, config: Partial<IssueManagementConfig>) => {
+    const { cloudMode, user } = get();
+    const newConfigs = get().issueManagementConfigs.map(c => c.id === id ? { ...c, ...config } : c);
+    set({ issueManagementConfigs: newConfigs });
+    storageService.saveSettings('issueManagementConfigs', newConfigs, cloudMode, user?.uid);
+  },
+
+  removeIssueManagementConfig: (id: string) => {
+    const { cloudMode, user } = get();
+    const newConfigs = get().issueManagementConfigs.filter(c => c.id !== id);
+    set({ issueManagementConfigs: newConfigs });
+    storageService.saveSettings('issueManagementConfigs', newConfigs, cloudMode, user?.uid);
   },
 
   takeSnapshot: () => {
@@ -313,12 +401,24 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   
   loadProjects: async () => {
     const { cloudMode, user } = get();
+    await get().loadSettings();
     const projects = await storageService.getProjects(cloudMode, user?.uid);
     set({ projects });
   },
+
+  loadSettings: async () => {
+    const { cloudMode, user } = get();
+    const nodeTypes = await storageService.getSettings('nodeTypes', cloudMode, user?.uid);
+    const issueManagementConfigs = await storageService.getSettings('issueManagementConfigs', cloudMode, user?.uid);
+    const issueManagementInstanceTypes = await storageService.getSettings('issueManagementInstanceTypes', cloudMode, user?.uid);
+    
+    if (nodeTypes) set({ nodeTypes });
+    if (issueManagementConfigs) set({ issueManagementConfigs });
+    if (issueManagementInstanceTypes) set({ issueManagementInstanceTypes });
+  },
   
   createProject: async (name: string) => {
-    const { cloudMode, user } = get();
+    const { cloudMode, user, projects } = get();
     const newProject: Project = {
       id: uuidv4(),
       name,
@@ -327,21 +427,28 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
-    await storageService.saveProject(newProject, cloudMode);
-    
-    const rootGraph: Graph = {
-      id: uuidv4(),
-      projectId: newProject.id,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
-    await storageService.saveGraph(rootGraph, cloudMode);
-    
-    set((state) => ({
-      projects: [...state.projects, newProject],
-    }));
-    
-    await get().loadProject(newProject.id);
+
+    // Optimistic update
+    set({ projects: [...projects, newProject] });
+
+    try {
+      await storageService.saveProject(newProject, cloudMode);
+      
+      const rootGraph: Graph = {
+        id: uuidv4(),
+        projectId: newProject.id,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      await storageService.saveGraph(rootGraph, cloudMode);
+      
+      await get().loadProject(newProject.id);
+    } catch (error) {
+      // Rollback
+      set({ projects });
+      console.error('Failed to create project', error);
+      alert('Failed to create project. Please try again.');
+    }
   },
   
   loadProject: async (projectId: string) => {
@@ -414,15 +521,57 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   },
   
   deleteProject: async (projectId: string) => {
-    const { cloudMode } = get();
-    await storageService.deleteProject(projectId, cloudMode);
-    set((state) => ({
-      projects: state.projects.filter(p => p.id !== projectId),
-      activeProjectId: state.activeProjectId === projectId ? null : state.activeProjectId,
-      activeGraphId: state.activeProjectId === projectId ? null : state.activeGraphId,
-      nodes: state.activeProjectId === projectId ? [] : state.nodes,
-      edges: state.activeProjectId === projectId ? [] : state.edges,
-    }));
+    const { cloudMode, projects, activeProjectId, activeGraphId } = get();
+    
+    // Optimistic update
+    const previousProjects = projects;
+    set({
+      projects: projects.filter(p => p.id !== projectId),
+      activeProjectId: activeProjectId === projectId ? null : activeProjectId,
+      activeGraphId: activeProjectId === projectId ? null : activeGraphId,
+      nodes: activeProjectId === projectId ? [] : get().nodes,
+      edges: activeProjectId === projectId ? [] : get().edges,
+    });
+
+    try {
+      await storageService.deleteProject(projectId, cloudMode);
+    } catch (error) {
+      // Rollback
+      set({ projects: previousProjects });
+      console.error('Failed to delete project', error);
+      alert('Failed to delete project. Please try again.');
+    }
+  },
+
+  toggleProjectLocalOnly: async (projectId: string) => {
+    const { projects, cloudMode } = get();
+    const project = projects.find(p => p.id === projectId);
+    if (!project) return;
+    
+    const isLocalOnly = !project.isLocalOnly;
+    const updatedProject = { ...project, isLocalOnly };
+    
+    set({ projects: projects.map(p => p.id === projectId ? updatedProject : p) });
+    
+    // Update local storage for fast access by storageService
+    const localProjects = JSON.parse(localStorage.getItem('atlas_local_projects') || '[]');
+    if (isLocalOnly) {
+      if (!localProjects.includes(projectId)) localProjects.push(projectId);
+    } else {
+      const index = localProjects.indexOf(projectId);
+      if (index > -1) localProjects.splice(index, 1);
+    }
+    localStorage.setItem('atlas_local_projects', JSON.stringify(localProjects));
+    
+    await storageService.saveProject(updatedProject, cloudMode);
+    
+    if (isLocalOnly && cloudMode) {
+      // If we just made it local only, we should delete it from the cloud
+      await storageService.deleteProjectFromCloud(projectId);
+    } else if (!isLocalOnly && cloudMode) {
+      // If we just made it synced, we need to upload all its graphs, nodes, edges, etc.
+      await storageService.syncProjectToCloud(projectId);
+    }
   },
   
   loadGraph: async (graphId: string) => {
@@ -469,9 +618,171 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     const node = nodes.find(n => n.id === nodeId);
     if (!node) return;
     
-    // Toggle expanded state
-    const isExpanded = !node.data.isExpanded;
-    await get().updateNodeData(nodeId, { isExpanded });
+    const isGroup = node.type === 'groupNode';
+    
+    const updateData: any = {};
+    if (isGroup) {
+      updateData.isCollapsed = !node.data.isCollapsed;
+    } else {
+      updateData.isExpanded = !node.data.isExpanded;
+    }
+    
+    // If expanding (or uncollapsing), ensure it has a decent size
+    const isOpening = isGroup ? !node.data.isCollapsed : !!node.data.isExpanded;
+    
+    if (isOpening && (!node.width || node.width < 200)) {
+      set({
+        nodes: nodes.map(n => n.id === nodeId ? { 
+          ...n, 
+          width: 600, 
+          height: 400, 
+          data: { ...n.data, ...updateData } 
+        } : n),
+        focusNodeId: nodeId
+      });
+      
+      const updatedNode = get().nodes.find(n => n.id === nodeId);
+      if (updatedNode) {
+        await storageService.saveNode(updatedNode as any, get().activeProjectId || undefined, get().cloudMode);
+      }
+      await get().autoResizeParent(nodeId);
+    } else {
+      await get().updateNodeData(nodeId, updateData);
+      if (isOpening) {
+        set({ focusNodeId: nodeId });
+        await get().autoResizeParent(nodeId);
+      } else {
+        set({ focusNodeId: null });
+      }
+    }
+  },
+  
+  setFocusNodeId: (id: string | null) => set({ focusNodeId: id }),
+
+  autoResizeParent: async (parentId: string) => {
+    const { nodes, activeProjectId, cloudMode } = get();
+    const parent = nodes.find(n => n.id === parentId);
+    if (!parent) return;
+
+    // Recursive function to get all descendants
+    const getDescendants = (nodeId: string): Node[] => {
+      const children = nodes.filter(n => n.parentId === nodeId);
+      let descendants = [...children];
+      for (const child of children) {
+        descendants = [...descendants, ...getDescendants(child.id)];
+      }
+      return descendants;
+    };
+
+    const descendants = getDescendants(parentId);
+    if (descendants.length === 0) return;
+
+    // Helper to get absolute position of a node relative to the parent
+    const getAbsolutePosition = (node: Node): { x: number; y: number } => {
+      let x = node.position.x;
+      let y = node.position.y;
+      let currentParentId = node.parentId;
+
+      while (currentParentId && currentParentId !== parentId) {
+        const p = nodes.find((n) => n.id === currentParentId);
+        if (p) {
+          x += p.position.x;
+          y += p.position.y;
+          currentParentId = p.parentId;
+        } else {
+          break;
+        }
+      }
+      return { x, y };
+    };
+
+    // Calculate bounding box of descendants
+    let maxX = 0;
+    let maxY = 0;
+
+    descendants.forEach(descendant => {
+      const pos = getAbsolutePosition(descendant);
+      const x = pos.x;
+      const y = pos.y;
+      const w = descendant.width || (descendant.type === 'groupNode' ? 200 : 150);
+      const h = descendant.height || (descendant.type === 'groupNode' ? 150 : 100);
+
+      maxX = Math.max(maxX, x + w);
+      maxY = Math.max(maxY, y + h);
+    });
+
+    const padding = 60;
+    const headerHeight = 50;
+    
+    const requiredWidth = Math.max(parent.width || 200, maxX + padding);
+    const requiredHeight = Math.max(parent.height || 150, maxY + padding + headerHeight);
+
+    if (Math.abs(requiredWidth - (parent.width || 200)) > 5 || Math.abs(requiredHeight - (parent.height || 150)) > 5) {
+      const oldWidth = parent.width || 200;
+      const oldHeight = parent.height || 150;
+      
+      const deltaW = requiredWidth - oldWidth;
+      const deltaH = requiredHeight - oldHeight;
+
+      set(state => ({
+        nodes: state.nodes.map(n => n.id === parentId ? {
+          ...n,
+          width: requiredWidth,
+          height: requiredHeight
+        } : n)
+      }));
+      
+      const updatedParent = get().nodes.find(n => n.id === parentId);
+      if (updatedParent) {
+        await storageService.saveNode(updatedParent as any, activeProjectId || undefined, cloudMode);
+      }
+      
+      // Push neighbors
+      if (deltaW > 0 || deltaH > 0) {
+        const currentNodes = get().nodes;
+        const siblings = currentNodes.filter(n => n.parentId === parent.parentId && n.id !== parentId);
+        
+        const nodesToPush = siblings.filter(s => {
+          // If sibling is to the right of the parent
+          const isToRight = s.position.x >= parent.position.x + oldWidth - 20;
+          // If sibling is below the parent
+          const isBelow = s.position.y >= parent.position.y + oldHeight - 20;
+          return isToRight || isBelow;
+        });
+        
+        if (nodesToPush.length > 0) {
+          set(state => ({
+            nodes: state.nodes.map(n => {
+              const pushNode = nodesToPush.find(p => p.id === n.id);
+              if (pushNode) {
+                const isToRight = pushNode.position.x >= parent.position.x + oldWidth - 20;
+                const isBelow = pushNode.position.y >= parent.position.y + oldHeight - 20;
+                
+                return {
+                  ...n,
+                  position: {
+                    x: n.position.x + (isToRight ? deltaW : 0),
+                    y: n.position.y + (isBelow ? deltaH : 0)
+                  }
+                };
+              }
+              return n;
+            })
+          }));
+          
+          // Save pushed nodes
+          const finalNodes = get().nodes;
+          for (const pushedNode of finalNodes.filter(n => nodesToPush.some(p => p.id === n.id))) {
+            await storageService.saveNode(pushedNode as any, activeProjectId || undefined, cloudMode);
+          }
+          
+          // Recursively resize parent of parent if needed
+          if (parent.parentId) {
+            await get().autoResizeParent(parent.parentId);
+          }
+        }
+      }
+    }
   },
   
   navigateUp: async (index: number) => {
@@ -486,6 +797,8 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     // Persist position/size changes
     if (!activeGraphId) return;
     
+    const parentIdsToResize = new Set<string>();
+
     changes.forEach(async (change) => {
       if (change.type === 'position' || change.type === 'dimensions') {
         const node = newNodes.find(n => n.id === change.id);
@@ -501,11 +814,22 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
             parentId: node.parentId
           };
           await storageService.saveNode(appNode, activeProjectId || undefined, cloudMode);
+          
+          if (node.parentId) {
+            parentIdsToResize.add(node.parentId);
+          }
         }
       } else if (change.type === 'remove') {
         await storageService.deleteNode(change.id, activeGraphId, activeProjectId || undefined, cloudMode);
       }
     });
+
+    if (parentIdsToResize.size > 0) {
+      // Use a small timeout to let React Flow update dimensions if needed
+      setTimeout(() => {
+        parentIdsToResize.forEach(pid => get().autoResizeParent(pid));
+      }, 50);
+    }
   },
   
   onEdgesChange: (changes: EdgeChange[]) => {
@@ -602,6 +926,8 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       data: initialData,
       parentId,
       extent: parentId ? 'parent' : undefined,
+      width: type === 'groupNode' ? 300 : 200,
+      height: type === 'groupNode' ? 200 : 120,
     };
     
     set({ nodes: [...get().nodes, newNode] });
@@ -610,11 +936,18 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       id: newNode.id,
       graphId: activeGraphId,
       position: newNode.position,
+      width: newNode.width,
+      height: newNode.height,
       type: newNode.type || 'customNode',
       data: newNode.data as any,
       parentId,
     };
     await storageService.saveNode(appNode, activeProjectId || undefined, cloudMode);
+
+    // Auto resize parent if needed
+    if (parentId) {
+      await get().autoResizeParent(parentId);
+    }
   },
   
   updateNodeData: async (id: string, data: any) => {
@@ -639,7 +972,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
         data: updatedNode.data as any,
         parentId: updatedNode.parentId
       };
-      await storageService.saveNode(appNode, activeProjectId || undefined, cloudMode);
+      debouncedSaveNode(appNode, activeProjectId || undefined, cloudMode);
     }
   },
   
@@ -753,6 +1086,11 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   deleteNode: async (id: string) => {
     const { nodes, edges, activeGraphId, activeProjectId, cloudMode } = get();
     
+    if (!activeGraphId) {
+      console.warn('deleteNode called without activeGraphId');
+      return;
+    }
+    
     get().takeSnapshot();
     
     // Find children if this is a group node
@@ -762,12 +1100,12 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     // Remove connected edges for node and its children
     const connectedEdges = edges.filter(e => idsToDelete.has(e.source) || idsToDelete.has(e.target));
     for (const edge of connectedEdges) {
-      await storageService.deleteEdge(edge.id, activeGraphId || '', activeProjectId || undefined, cloudMode);
+      await storageService.deleteEdge(edge.id, activeGraphId, activeProjectId || undefined, cloudMode);
     }
     
     // Delete nodes from storage
     for (const nodeId of idsToDelete) {
-      await storageService.deleteNode(nodeId, activeGraphId || '', activeProjectId || undefined, cloudMode);
+      await storageService.deleteNode(nodeId, activeGraphId, activeProjectId || undefined, cloudMode);
     }
     
     set((state) => ({
@@ -1117,25 +1455,60 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     get().tidyUp();
   },
 
-  analyzeGitHubRepo: async (repoUrl: string) => {
-    const { activeGraphId, selectedModel } = get();
-    if (!activeGraphId) return;
-
+  analyzeGitHubRepo: async (repoUrl: string, mode: 'new' | 'current' = 'new') => {
+    let { activeGraphId, selectedModel } = get();
+    
     get().takeSnapshot();
 
     try {
       // Extract owner and repo from URL
       const match = repoUrl.match(/github\.com\/([^/]+)\/([^/]+)/);
-      if (!match) throw new Error('Invalid GitHub URL');
+      if (!match) throw new Error('Invalid GitHub URL. Please use the format: https://github.com/owner/repo');
       const [, owner, repo] = match;
 
-      // Fetch repo structure (simplified for now)
-      const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents`);
-      if (!response.ok) throw new Error('Failed to fetch repository contents');
-      const contents = await response.json();
-      const repoStructure = contents.map((item: any) => `${item.type === 'dir' ? '[DIR]' : '[FILE]'} ${item.path}`).join('\n');
+      // If mode is 'new' or no active graph, create a new project
+      if (mode === 'new' || !activeGraphId) {
+        await get().createProject(`Import: ${repo}`);
+        // Re-fetch state after creation
+        activeGraphId = get().activeGraphId;
+        if (!activeGraphId) throw new Error('Failed to create a project for the import. Please create a project manually first.');
+      }
 
-      const result = await geminiService.analyzeRepo(repoStructure, selectedModel);
+      // Fetch repo structure (simplified for now)
+      const headers: Record<string, string> = {
+        'Accept': 'application/vnd.github.v3+json'
+      };
+      const { githubToken } = get();
+      if (githubToken) {
+        headers['Authorization'] = `token ${githubToken}`;
+      }
+
+      // 1. Get default branch
+      const repoInfoResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}`, { headers });
+      if (!repoInfoResponse.ok) {
+        if (repoInfoResponse.status === 404) {
+          throw new Error('Repository not found. Make sure it is public or you are connected with a token that has access.');
+        }
+        throw new Error(`Failed to fetch repository info: ${repoInfoResponse.statusText}`);
+      }
+      const repoInfo = await repoInfoResponse.json();
+      const defaultBranch = repoInfo.default_branch || 'main';
+
+      // 2. Fetch recursive tree
+      const treeResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/${defaultBranch}?recursive=1`, { headers });
+      if (!treeResponse.ok) {
+        throw new Error(`Failed to fetch repository tree: ${treeResponse.statusText}`);
+      }
+      const treeData = await treeResponse.json();
+      
+      // Limit tree size to avoid overwhelming the prompt (e.g., top 100 items)
+      const treeItems = treeData.tree
+        .filter((item: any) => !item.path.startsWith('.') && !item.path.includes('node_modules'))
+        .slice(0, 150)
+        .map((item: any) => `${item.type === 'tree' ? '[DIR]' : '[FILE]'} ${item.path}`)
+        .join('\n');
+
+      const result = await geminiService.analyzeRepo(treeItems, selectedModel);
       
       const idMap: Record<string, string> = {};
       const finalNewNodes: Node[] = [];
@@ -1204,7 +1577,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       get().tidyUp();
     } catch (error) {
       console.error('Failed to analyze GitHub repo:', error);
-      alert('Failed to analyze GitHub repo. Make sure it is a public repository.');
+      throw error; // Re-throw to be caught by the UI
     }
   },
 
@@ -1353,12 +1726,23 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     if (!cloudMode || !activeProjectId || !user) return;
 
     const presenceRef = doc(db, `projects/${activeProjectId}/presence`, user.uid);
-    await setDoc(presenceRef, {
-      name: user.displayName || 'Anonymous',
-      photoUrl: user.photoURL || '',
-      lastSeen: Date.now(),
-      cursor: cursor || null
-    }, { merge: true });
+    await storageService.writeWithQueue(
+      () => setDoc(presenceRef, {
+        name: user.displayName || 'Anonymous',
+        photoUrl: user.photoURL || '',
+        lastSeen: Date.now(),
+        cursor: cursor || null
+      }, { merge: true }),
+      'updatePresence',
+      `projects/${activeProjectId}/presence/${user.uid}`,
+      {
+        name: user.displayName || 'Anonymous',
+        photoUrl: user.photoURL || '',
+        lastSeen: Date.now(),
+        cursor: cursor || null
+      },
+      activeProjectId
+    );
   },
 
   syncGraph: (graphId: string) => {
@@ -1495,7 +1879,13 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
         batch.set(doc(db, `projects/${activeProjectId}/graphs/${activeGraphId}/edges`, id), data);
       });
       
-      await batch.commit();
+      await storageService.writeWithQueue(
+        () => batch.commit(),
+        'restoreSnapshot',
+        `projects/${activeProjectId}/graphs/${activeGraphId}`,
+        { nodes: snapshot.nodes, edges: snapshot.edges },
+        activeProjectId
+      );
     } else {
       set({ nodes: snapshot.nodes, edges: snapshot.edges });
     }
@@ -1554,4 +1944,5 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       set(state => ({ comments: state.comments.filter(c => c.id !== commentId) }));
     }
   },
-}));
+  };
+});

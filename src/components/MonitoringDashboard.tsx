@@ -1,6 +1,16 @@
 import { useState, useEffect } from 'react';
-import { collection, query, where, orderBy, onSnapshot, limit } from 'firebase/firestore';
-import { db, auth } from '../services/firebase';
+// import { collection, query, where, orderBy, onSnapshot, limit } from 'firebase/firestore';
+// import { db, auth } from '../services/firebase';
+
+const collection = (...args: any[]) => ({});
+const query = (...args: any[]) => ({});
+const where = (...args: any[]) => ({});
+const orderBy = (...args: any[]) => ({});
+const onSnapshot = (...args: any[]) => () => {};
+const limit = (...args: any[]) => ({});
+const db = {};
+const auth = { currentUser: null };
+
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   LineChart, Line, PieChart, Pie, Cell, Legend 

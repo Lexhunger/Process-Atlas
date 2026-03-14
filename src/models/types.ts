@@ -5,6 +5,7 @@ export interface Project {
   updatedAt: number;
   ownerId?: string;
   members?: string[];
+  isLocalOnly?: boolean;
 }
 
 export interface Graph {
@@ -30,7 +31,22 @@ export interface CodeSnippet {
   code: string;
 }
 
-export type NodeShape = 'rectangle' | 'diamond' | 'circle' | 'pill' | 'parallelogram' | 'hexagon' | 'cylinder' | 'document' | 'component' | 'gear';
+export interface IssueManagementConfig {
+  id: string;
+  name: string;
+  url: string;
+  pat: string;
+  provider: 'Jira' | 'ADO' | 'ServiceNow';
+  instanceType: string;
+}
+
+export interface Settings {
+  nodeTypes: string[];
+  issueManagementConfigs: IssueManagementConfig[];
+  issueManagementInstanceTypes: string[];
+}
+
+export type NodeShape = 'rectangle' | 'diamond' | 'circle' | 'pill' | 'parallelogram' | 'hexagon' | 'cylinder' | 'document' | 'component' | 'gear' | 'jira';
 
 export interface NodeData extends Record<string, unknown> {
   title: string;
@@ -45,6 +61,9 @@ export interface NodeData extends Record<string, unknown> {
   shape?: NodeShape;
   icon?: string;
   iconUrl?: string;
+  color?: string;
+  jiraTicketId?: string;
+  jiraConfigId?: string;
 }
 
 export interface AppNode {

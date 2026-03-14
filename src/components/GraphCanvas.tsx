@@ -15,11 +15,13 @@ import '@xyflow/react/dist/style.css';
 import { useGraphStore } from '../store/graphStore';
 import CustomNode from './CustomNode';
 import GroupNode from './GroupNode';
+import IssueNode from './IssueNode';
 import { MousePointer2 } from 'lucide-react';
 
 const nodeTypes = {
   customNode: CustomNode,
   groupNode: GroupNode,
+  jiraNode: IssueNode,
 };
 
 function RemoteCursors() {
@@ -70,13 +72,38 @@ function Flow() {
     isPresentationMode,
     cloudMode,
     updatePresence,
+    focusNodeId,
+    setFocusNodeId,
   } = useGraphStore();
 
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const [reactFlowInstance, setReactFlowInstance] = useState<any>(null);
-  const { setCenter, screenToFlowPosition } = useReactFlow();
+  const { setCenter, fitView } = useReactFlow();
 
   const lastPresenceUpdate = useRef<number>(0);
+
+  // Focus effect: Zoom to node when focusNodeId changes
+  useEffect(() => {
+    if (focusNodeId && reactFlowInstance) {
+      const node = nodes.find(n => n.id === focusNodeId);
+      if (node) {
+        // Calculate center of node
+        const x = node.position.x + (node.width || 0) / 2;
+        const y = node.position.y + (node.height || 0) / 2;
+        
+        // Zoom in
+        if (setCenter) {
+          setCenter(x, y, { zoom: 1.2, duration: 800 });
+        }
+        
+        // Clear focus after zoom
+        const timer = setTimeout(() => {
+          setFocusNodeId(null);
+        }, 1000);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [focusNodeId, reactFlowInstance, nodes, setCenter, setFocusNodeId]);
 
   // Cursor tracking
   const onMouseMove = useCallback((event: React.MouseEvent) => {
@@ -164,6 +191,37 @@ function Flow() {
         y: event.clientY,
       });
 
+      // Helper to get absolute position of a node
+      const getAbsolutePosition = (node: Node, allNodes: Node[]): { x: number; y: number } => {
+        let x = node.position.x;
+        let y = node.position.y;
+        let parentId = node.parentId;
+
+        while (parentId) {
+          const parent = allNodes.find((n) => n.id === parentId);
+          if (parent) {
+            x += parent.position.x;
+            y += parent.position.y;
+            parentId = parent.parentId;
+          } else {
+            break;
+          }
+        }
+        return { x, y };
+      };
+
+      // Helper to get depth of a node
+      const getNodeDepth = (node: Node, allNodes: Node[]): number => {
+        let depth = 0;
+        let parentId = node.parentId;
+        while (parentId) {
+          depth++;
+          const parent = allNodes.find(n => n.id === parentId);
+          parentId = parent?.parentId;
+        }
+        return depth;
+      };
+
       // Check if dropped inside an expanded node
       const intersectingNodes = reactFlowInstance.getIntersectingNodes({
         x: position.x,
@@ -173,21 +231,31 @@ function Flow() {
       });
 
       let parentId = undefined;
-      const expandedParent = intersectingNodes.find((n: Node) => 
+      const expandedParents = intersectingNodes.filter((n: Node) => 
         (n.type === 'customNode' && n.data.isExpanded) || 
         (n.type === 'groupNode' && !n.data.isCollapsed)
       );
 
-      if (expandedParent) {
-        parentId = expandedParent.id;
-        // Adjust position to be relative to parent
-        position.x -= expandedParent.position.x;
-        position.y -= expandedParent.position.y;
+      if (expandedParents.length > 0) {
+        // Pick the deepest node as the parent
+        const deepestParent = expandedParents.reduce((prev, curr) => 
+          getNodeDepth(curr, nodes) > getNodeDepth(prev, nodes) ? curr : prev
+        );
+        
+        parentId = deepestParent.id;
+        // Adjust position to be relative to parent using absolute coordinates
+        const absoluteParentPos = getAbsolutePosition(deepestParent, nodes);
+        position.x -= absoluteParentPos.x;
+        position.y -= absoluteParentPos.y;
+        
+        // Ensure it's not hidden behind the header (50px)
+        if (position.y < 50) position.y = 60;
+        if (position.x < 20) position.x = 20;
       }
 
       addNode(position, type, templateId || undefined, shape || undefined, parentId);
     },
-    [reactFlowInstance, addNode]
+    [reactFlowInstance, addNode, nodes]
   );
 
   const filteredNodes = useMemo(() => {

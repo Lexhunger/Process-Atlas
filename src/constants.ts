@@ -1,0 +1,12 @@
+export const PASTEL_COLORS = [
+  { name: 'Pink', value: '#FFB3BA' },
+  { name: 'Peach', value: '#FFDFBA' },
+  { name: 'Yellow', value: '#FFFFBA' },
+  { name: 'Green', value: '#BAFFC9' },
+  { name: 'Blue', value: '#BAE1FF' },
+  { name: 'Lavender', value: '#E0BBE4' },
+  { name: 'Mint', value: '#D4F0F0' },
+  { name: 'Apricot', value: '#FFC8A2' },
+  { name: 'Vanilla', value: '#F3E5AB' },
+  { name: 'Light Gray', value: '#F0F0F0' },
+];
