@@ -22,6 +22,8 @@ const nodeTypes = {
   customNode: CustomNode,
   groupNode: GroupNode,
   jiraNode: IssueNode,
+  inputNode: CustomNode,
+  outputNode: CustomNode,
 };
 
 function RemoteCursors() {
@@ -133,9 +135,85 @@ function Flow() {
     }
   }, [simulationActiveNodeId, isPresentationMode, nodes, setCenter]);
 
-  const onNodeDragStop = useCallback(() => {
+  // Helper to get absolute position of a node
+  const getAbsolutePosition = useCallback((node: Node, allNodes: Node[]): { x: number; y: number } => {
+    let x = node.position.x;
+    let y = node.position.y;
+    let parentId = node.parentId;
+    const visited = new Set<string>();
+
+    while (parentId) {
+      if (visited.has(parentId)) break;
+      visited.add(parentId);
+      
+      const parent = allNodes.find((n) => n.id === parentId);
+      if (parent) {
+        x += parent.position.x;
+        y += parent.position.y;
+        parentId = parent.parentId;
+      } else {
+        break;
+      }
+    }
+    return { x, y };
+  }, []);
+
+  const getNodeDepth = useCallback((node: Node, allNodes: Node[]): number => {
+    let depth = 0;
+    let parentId = node.parentId;
+    while (parentId) {
+      depth++;
+      const parent = allNodes.find(n => n.id === parentId);
+      if (parent) {
+        parentId = parent.parentId;
+      } else {
+        break;
+      }
+    }
+    return depth;
+  }, []);
+
+  const onNodeDragStart = useCallback((_: any, node: Node) => {
+    // Bring node to front
+    useGraphStore.getState().updateNodeZIndex(node.id, 1000);
+  }, []);
+
+  const onNodeDragStop = useCallback((_: any, node: Node) => {
     takeSnapshot();
-  }, [takeSnapshot]);
+    useGraphStore.getState().updateNodeZIndex(node.id, 0);
+    
+    if (!reactFlowInstance) return;
+
+    const intersectingNodes = reactFlowInstance.getIntersectingNodes(node);
+    const expandedParents = intersectingNodes.filter((n: Node) => 
+      (n.type === 'customNode' && n.data.isExpanded) || 
+      (n.type === 'groupNode' && !n.data.isCollapsed)
+    );
+
+    let potentialParent = undefined;
+    if (expandedParents.length > 0) {
+      potentialParent = expandedParents.reduce((prev, curr) => 
+        getNodeDepth(curr, nodes) > getNodeDepth(prev, nodes) ? curr : prev
+      );
+    }
+
+    if (potentialParent && potentialParent.id !== node.id && potentialParent.id !== node.parentId) {
+      // Calculate new relative position
+      const absoluteNodePos = getAbsolutePosition(node, nodes);
+      const absoluteParentPos = getAbsolutePosition(potentialParent, nodes);
+      const newRelativeX = absoluteNodePos.x - absoluteParentPos.x;
+      const newRelativeY = absoluteNodePos.y - absoluteParentPos.y;
+      
+      // Update parentId AND position
+      useGraphStore.getState().updateNodeParent(node.id, potentialParent.id);
+      useGraphStore.getState().updateNodePosition(node.id, { x: newRelativeX, y: newRelativeY });
+    } else if (node.parentId && !potentialParent) {
+      // Dragged out of parent
+      const absolutePos = getAbsolutePosition(node, nodes);
+      useGraphStore.getState().updateNodeParent(node.id, undefined);
+      useGraphStore.getState().updateNodePosition(node.id, absolutePos);
+    }
+  }, [takeSnapshot, reactFlowInstance, nodes, getAbsolutePosition]);
 
   const onInit = (instance: any) => {
     setReactFlowInstance(instance);
@@ -191,37 +269,6 @@ function Flow() {
         y: event.clientY,
       });
 
-      // Helper to get absolute position of a node
-      const getAbsolutePosition = (node: Node, allNodes: Node[]): { x: number; y: number } => {
-        let x = node.position.x;
-        let y = node.position.y;
-        let parentId = node.parentId;
-
-        while (parentId) {
-          const parent = allNodes.find((n) => n.id === parentId);
-          if (parent) {
-            x += parent.position.x;
-            y += parent.position.y;
-            parentId = parent.parentId;
-          } else {
-            break;
-          }
-        }
-        return { x, y };
-      };
-
-      // Helper to get depth of a node
-      const getNodeDepth = (node: Node, allNodes: Node[]): number => {
-        let depth = 0;
-        let parentId = node.parentId;
-        while (parentId) {
-          depth++;
-          const parent = allNodes.find(n => n.id === parentId);
-          parentId = parent?.parentId;
-        }
-        return depth;
-      };
-
       // Check if dropped inside an expanded node
       const intersectingNodes = reactFlowInstance.getIntersectingNodes({
         x: position.x,
@@ -255,7 +302,7 @@ function Flow() {
 
       addNode(position, type, templateId || undefined, shape || undefined, parentId);
     },
-    [reactFlowInstance, addNode, nodes]
+    [reactFlowInstance, addNode, nodes, getNodeDepth, getAbsolutePosition]
   );
 
   const filteredNodes = useMemo(() => {
@@ -361,10 +408,10 @@ function Flow() {
         onNodeDoubleClick={onNodeDoubleClick}
         onDrop={onDrop}
         onDragOver={onDragOver}
+        onNodeDragStart={onNodeDragStart}
         onNodeDragStop={onNodeDragStop}
         nodeTypes={nodeTypes}
         defaultEdgeOptions={{ type: 'smoothstep' }}
-        fitView
         className="bg-slate-50 dark:bg-slate-900"
       >
         <Controls className="dark:bg-slate-800 dark:border-slate-700 dark:fill-slate-300" />

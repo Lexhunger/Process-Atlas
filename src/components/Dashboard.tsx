@@ -1,6 +1,6 @@
 import React from 'react';
 import { useGraphStore } from '../store/graphStore';
-import { BarChart3, PieChart, Activity, Layers, Hash, Link as LinkIcon, X } from 'lucide-react';
+import { BarChart3, PieChart, Activity, Layers, Hash, Link as LinkIcon, X, Database, UploadCloud } from 'lucide-react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell, PieChart as RePieChart, Pie } from 'recharts';
 
 interface DashboardProps {
@@ -8,7 +8,7 @@ interface DashboardProps {
 }
 
 export default function Dashboard({ onClose }: DashboardProps) {
-  const { nodes, edges } = useGraphStore();
+  const { nodes, edges, dbReads, dbWrites } = useGraphStore();
 
   // Calculate stats
   const totalNodes = nodes.length;
@@ -54,7 +54,7 @@ export default function Dashboard({ onClose }: DashboardProps) {
 
         <div className="flex-1 overflow-y-auto p-6 space-y-8">
           {/* Quick Stats */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <StatCard 
               icon={<Layers className="w-5 h-5 text-blue-500" />}
               label="Total Nodes"
@@ -79,6 +79,20 @@ export default function Dashboard({ onClose }: DashboardProps) {
               label="Unique Types"
               value={Object.keys(nodeTypes).length}
               color="amber"
+            />
+            <StatCard 
+              icon={<Database className="w-5 h-5 text-indigo-500" />}
+              label="DB Reads"
+              value={dbReads}
+              subLabel="Lifetime"
+              color="indigo"
+            />
+            <StatCard 
+              icon={<UploadCloud className="w-5 h-5 text-violet-500" />}
+              label="DB Writes"
+              value={dbWrites}
+              subLabel="Lifetime"
+              color="violet"
             />
           </div>
 

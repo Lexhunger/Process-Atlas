@@ -7,11 +7,16 @@
       "properties": {
         "name": { "type": "string", "description": "Project name" },
         "ownerId": { "type": "string", "description": "UID of the owner" },
-        "members": { "type": "array", "items": { "type": "string" }, "description": "List of member UIDs" },
+        "collaborators": { 
+          "type": "object", 
+          "description": "Map of userId to role (reader/editor)",
+          "additionalProperties": { "type": "string" }
+        },
+        "publicAccess": { "type": "boolean", "description": "Whether the project is publicly accessible via link" },
         "createdAt": { "type": "number", "description": "Creation timestamp" },
         "updatedAt": { "type": "number", "description": "Last update timestamp" }
       },
-      "required": ["name", "ownerId", "members", "createdAt", "updatedAt"]
+      "required": ["name", "ownerId", "collaborators", "createdAt", "updatedAt"]
     },
     "Graph": {
       "title": "Graph",

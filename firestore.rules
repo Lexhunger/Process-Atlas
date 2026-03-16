@@ -18,11 +18,18 @@ service cloud.firestore {
           (request.auth.token.email == "bmporter12@gmail.com" && request.auth.token.email_verified == true));
     }
 
-    function isProjectMember(projectId) {
+    function isProjectReader() {
+      return (resource.data.publicAccess == true) || (isAuthenticated() && (
+        resource.data.ownerId == request.auth.uid ||
+        resource.data.collaborators[request.auth.uid] in ['reader', 'editor'] ||
+        isAdmin()
+      ));
+    }
+
+    function isProjectEditor() {
       return isAuthenticated() && (
-        exists(/databases/$(database)/documents/projects/$(projectId)) &&
-        (request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.members ||
-         request.auth.uid == get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId) ||
+        resource.data.ownerId == request.auth.uid ||
+        resource.data.collaborators[request.auth.uid] == 'editor' ||
         isAdmin()
       );
     }
@@ -39,37 +46,40 @@ service cloud.firestore {
     // ===============================================================
 
     match /projects/{projectId} {
-      allow read: if isAuthenticated() && (request.auth.uid in resource.data.members || request.auth.uid == resource.data.ownerId || isAdmin());
+      allow read: if isProjectReader();
       allow create: if isAuthenticated();
-      allow update: if isAuthenticated() && (request.auth.uid in resource.data.members || request.auth.uid == resource.data.ownerId || isAdmin());
+      allow update: if isProjectEditor();
       allow delete: if isAuthenticated() && (request.auth.uid == resource.data.ownerId || isAdmin());
 
       match /graphs/{graphId} {
-        allow read, write: if isProjectMember(projectId);
+        allow read: if isProjectReader();
+        allow write: if isProjectEditor();
 
         match /nodes/{nodeId} {
-          allow read, write: if isProjectMember(projectId);
+          allow read: if isProjectReader();
+          allow write: if isProjectEditor();
         }
 
         match /edges/{edgeId} {
-          allow read, write: if isProjectMember(projectId);
+          allow read: if isProjectReader();
+          allow write: if isProjectEditor();
         }
       }
 
       match /snapshots/{snapshotId} {
-        allow read: if isProjectMember(projectId);
-        allow create: if isProjectMember(projectId);
-        allow delete: if isProjectMember(projectId);
+        allow read: if isProjectReader();
+        allow create: if isProjectEditor();
+        allow delete: if isProjectEditor();
       }
 
       match /comments/{commentId} {
-        allow read: if isProjectMember(projectId);
-        allow create: if isProjectMember(projectId);
-        allow update, delete: if isProjectMember(projectId) && (request.auth.uid == resource.data.authorId || isAdmin());
+        allow read: if isProjectReader();
+        allow create: if isProjectEditor();
+        allow update, delete: if isProjectEditor() && (request.auth.uid == resource.data.authorId || isAdmin());
       }
 
       match /presence/{userId} {
-        allow read: if isProjectMember(projectId);
+        allow read: if isProjectReader();
         allow write: if isOwner(userId);
       }
     }

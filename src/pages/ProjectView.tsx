@@ -21,6 +21,8 @@ import { AnimatePresence } from 'motion/react';
 
 export default function ProjectView() {
   const { loadProjects, activeProjectId, activeGraphId, cloudMode, darkMode, setCloudMode, syncGraph, user, isOnline } = useGraphStore();
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isNodeInspectorOpen, setIsNodeInspectorOpen] = useState(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isMonitoringOpen, setIsMonitoringOpen] = useState(false);
   const [isSnapshotsOpen, setIsSnapshotsOpen] = useState(false);
@@ -93,7 +95,7 @@ export default function ProjectView() {
       />
       
       <div className="flex flex-1 overflow-hidden">
-        <Sidebar />
+        <Sidebar isOpen={isSidebarOpen} onToggle={() => setIsSidebarOpen(!isSidebarOpen)} />
         
         <div className="flex flex-col flex-1 relative bg-slate-50 dark:bg-slate-900">
           {activeProjectId ? (
@@ -117,7 +119,7 @@ export default function ProjectView() {
           )}
         </div>
         
-        {activeProjectId && <NodeInspector />}
+        {activeProjectId && <NodeInspector isOpen={isNodeInspectorOpen} setIsOpen={setIsNodeInspectorOpen} />}
       </div>
 
       <AnimatePresence>

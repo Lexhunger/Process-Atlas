@@ -4,7 +4,8 @@ export interface Project {
   createdAt: number;
   updatedAt: number;
   ownerId?: string;
-  members?: string[];
+  collaborators?: Record<string, 'reader' | 'editor'>;
+  publicAccess?: boolean;
   isLocalOnly?: boolean;
 }
 
@@ -64,6 +65,8 @@ export interface NodeData extends Record<string, unknown> {
   color?: string;
   jiraTicketId?: string;
   jiraConfigId?: string;
+  lastWidth?: number;
+  lastHeight?: number;
 }
 
 export interface AppNode {

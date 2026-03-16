@@ -3,7 +3,7 @@ import {
   Search, Download, Upload, Moon, Sun, Combine, Ungroup, Undo2, Redo2, 
   Wand2, Layout, BarChart3, Sparkles, Play, Square, FastForward, X, 
   ChevronDown, MonitorPlay, FileText, Image as ImageIcon, Zap, Tags, Settings as SettingsIcon,
-  Github, LogIn, Activity, LogOut, User, Cloud, History, MessageSquare, Layout as LayoutIcon, Share2
+  Github, LogIn, Activity, LogOut, User, Cloud, History, MessageSquare, Layout as LayoutIcon, Share2, RefreshCw
 } from 'lucide-react';
 import { useRef, useEffect, useState } from 'react';
 import Dashboard from './Dashboard';
@@ -57,6 +57,7 @@ export default function Toolbar({
     cloudMode,
     setCloudMode,
     devMode,
+    autoSync,
     isOnline,
     exportFormat,
     setExportFormat
@@ -78,6 +79,8 @@ export default function Toolbar({
   const [isGenerating, setIsGenerating] = useState(false);
   const [isOptimizeModalOpen, setIsOptimizeModalOpen] = useState(false);
   const [optimizePrompt, setOptimizePrompt] = useState('');
+  const [isSavingToCloud, setIsSavingToCloud] = useState(false);
+  const [hasSavedToCloud, setHasSavedToCloud] = useState(false);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -724,6 +727,44 @@ export default function Toolbar({
           )}
           
           <div className="w-px h-6 bg-slate-700 mx-2"></div>
+          
+          {!autoSync && cloudMode && !devMode && activeGraphId && (
+            <button
+              onClick={async () => {
+                if (isSavingToCloud) return;
+                setIsSavingToCloud(true);
+                try {
+                  const { storageService } = await import('../services/storageService');
+                  const graph = useGraphStore.getState().graphs.find(g => g.id === activeGraphId);
+                  if (graph) {
+                    await storageService.syncProjectToCloud(graph.projectId);
+                    setHasSavedToCloud(true);
+                    setTimeout(() => setHasSavedToCloud(false), 2000);
+                  }
+                } catch (error) {
+                  console.error("Failed to save to cloud", error);
+                } finally {
+                  setIsSavingToCloud(false);
+                }
+              }}
+              disabled={isSavingToCloud}
+              className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md transition-colors mr-2 ${
+                hasSavedToCloud 
+                  ? 'bg-emerald-600 text-white' 
+                  : 'text-emerald-400 hover:text-white hover:bg-emerald-900/50'
+              }`}
+              title="Save changes to Cloud"
+            >
+              {isSavingToCloud ? (
+                <RefreshCw className="w-4 h-4 animate-spin" />
+              ) : hasSavedToCloud ? (
+                <Cloud className="w-4 h-4" />
+              ) : (
+                <Cloud className="w-4 h-4" />
+              )}
+              {isSavingToCloud ? 'Saving...' : hasSavedToCloud ? 'Saved!' : 'Save to Cloud'}
+            </button>
+          )}
 
           {/* User & Monitoring Dropdown */}
           <div className="relative" ref={userMenuRef}>
@@ -811,7 +852,7 @@ export default function Toolbar({
                     <div className="flex flex-col items-start">
                       <span>Cloud Sync</span>
                       <span className="text-[10px] text-slate-500">
-                        {isOnline ? (cloudMode ? (devMode ? 'Paused (Dev Mode)' : 'Syncing to Firestore') : 'Local storage only') : 'Requires internet'}
+                        {isOnline ? (cloudMode ? (devMode ? 'Paused (Dev Mode)' : (autoSync ? 'Syncing to Firestore' : 'Manual Sync Only')) : 'Local storage only') : 'Requires internet'}
                       </span>
                     </div>
                   </button>

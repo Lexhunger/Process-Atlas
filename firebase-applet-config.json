@@ -3,7 +3,7 @@
   "appId": "1:196515599050:web:e8dfdc5c48c3bb3d091a33",
   "apiKey": "AIzaSyCRRoWx0Wy5Qt9JM5r-GMh2hpO96PxylQ0",
   "authDomain": "gen-lang-client-0984392627.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-6258953a-fadb-4db0-9d8f-c54e810fc90f",
+  "firestoreDatabaseId": "atlas-db",
   "storageBucket": "gen-lang-client-0984392627.firebasestorage.app",
   "messagingSenderId": "196515599050",
   "measurementId": ""

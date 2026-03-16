@@ -61,9 +61,13 @@ export default function GroupNode({ id, data, selected }: { id: string; data: No
       {tooltip}
       <NodeResizer 
         color="#6366f1" 
-        isVisible={selected && !data.isCollapsed} 
+        isVisible={selected} 
         minWidth={100} 
         minHeight={100} 
+        onResize={(_, params) => {
+          useGraphStore.getState().updateNodePosition(id, { x: params.x, y: params.y });
+          useGraphStore.getState().updateNodeData(id, data, { width: params.width, height: params.height });
+        }}
         onResizeEnd={() => useGraphStore.getState().takeSnapshot()}
       />
       <Handle type="target" position={Position.Top} id="top" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-20" />
@@ -78,7 +82,7 @@ export default function GroupNode({ id, data, selected }: { id: string; data: No
         }`}
         style={{ backgroundColor: data.color ? `${data.color}80` : undefined }}
       >
-        <div className={`px-4 py-2 bg-white/80 dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 flex items-center justify-between ${
+        <div className={`px-4 py-2 bg-white/80 dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 flex items-center justify-between pointer-events-auto ${
           data.isCollapsed ? 'rounded-xl h-full' : 'rounded-t-lg border-b'
         }`}>
           <div className="flex items-center gap-2">

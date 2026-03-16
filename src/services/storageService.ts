@@ -115,14 +115,38 @@ const cleanObject = (obj: any) => {
 const shouldSync = (cloudMode: boolean, projectId?: string) => {
   if (!cloudMode) return false;
   if (localStorage.getItem('atlas_dev_mode') === 'true') return false;
+  
   if (projectId) {
     const localProjects = JSON.parse(localStorage.getItem('atlas_local_projects') || '[]');
-    if (localProjects.includes(projectId)) return false;
+    if (localProjects.includes(projectId)) return false; // Project is explicitly local
+    return true; // Project is NOT explicitly local, so it should sync
   }
+  
+  // Fallback for when no projectId is provided
+  if (localStorage.getItem('atlas_auto_sync') === 'false') return false;
+  
   return true;
 };
 
 let isCloudQuotaExceeded = false;
+
+const incrementDbReads = async (count = 1) => {
+  try {
+    const { useGraphStore } = await import('../store/graphStore');
+    useGraphStore.getState().incrementDbReads(count);
+  } catch (e) {
+    console.error("Failed to increment DB reads", e);
+  }
+};
+
+const incrementDbWrites = async (count = 1) => {
+  try {
+    const { useGraphStore } = await import('../store/graphStore');
+    useGraphStore.getState().incrementDbWrites(count);
+  } catch (e) {
+    console.error("Failed to increment DB writes", e);
+  }
+};
 
 export const storageService = {
   getIsCloudQuotaExceeded() {
@@ -151,6 +175,7 @@ export const storageService = {
     }
     try {
       await operation();
+      await incrementDbWrites(1);
     } catch (error: any) {
       if (error?.code === 'resource-exhausted') {
         isCloudQuotaExceeded = true;
@@ -174,6 +199,7 @@ export const storageService = {
     }
     try {
       await operation();
+      await incrementDbWrites(1);
     } catch (error: any) {
       if (error?.code === 'resource-exhausted') {
         isCloudQuotaExceeded = true;
@@ -247,6 +273,7 @@ export const storageService = {
         count++;
       }
       await batch.commit();
+      await incrementDbWrites(count);
       isCloudQuotaExceeded = false;
       
       // Clear pending writes
@@ -271,6 +298,7 @@ export const storageService = {
       try {
         const q = query(collection(db, 'projects'), where('members', 'array-contains', userId));
         const snapshot = await getDocs(q);
+        await incrementDbReads(snapshot.docs.length || 1);
         const cloudProjects = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Project));
         
         // Merge local and cloud projects. Prefer cloud unless local is newer or project is local-only
@@ -330,6 +358,23 @@ export const storageService = {
         projectId
       );
       
+      // Delete existing nodes in cloud
+      try {
+        const nodesSnapshot = await getDocs(collection(db, `projects/${projectId}/graphs/${graph.id}/nodes`));
+        await incrementDbReads(nodesSnapshot.docs.length || 1);
+        for (const docSnap of nodesSnapshot.docs) {
+          await this.deleteWithQueue(
+            () => deleteDoc(doc(db, `projects/${projectId}/graphs/${graph.id}/nodes`, docSnap.id)),
+            'deleteNode',
+            `projects/${projectId}/graphs/${graph.id}/nodes/${docSnap.id}`,
+            { id: docSnap.id, graphId: graph.id, projectId },
+            projectId
+          );
+        }
+      } catch (e) {
+        console.error("Failed to delete existing nodes", e);
+      }
+
       // Get nodes and edges for this graph
       const nodes = await dbLocal.getAllFromIndex('nodes', 'by-graph', graph.id);
       for (const node of nodes) {
@@ -342,6 +387,23 @@ export const storageService = {
         );
       }
       
+      // Delete existing edges in cloud
+      try {
+        const edgesSnapshot = await getDocs(collection(db, `projects/${projectId}/graphs/${graph.id}/edges`));
+        await incrementDbReads(edgesSnapshot.docs.length || 1);
+        for (const docSnap of edgesSnapshot.docs) {
+          await this.deleteWithQueue(
+            () => deleteDoc(doc(db, `projects/${projectId}/graphs/${graph.id}/edges`, docSnap.id)),
+            'deleteEdge',
+            `projects/${projectId}/graphs/${graph.id}/edges/${docSnap.id}`,
+            { id: docSnap.id, graphId: graph.id, projectId },
+            projectId
+          );
+        }
+      } catch (e) {
+        console.error("Failed to delete existing edges", e);
+      }
+
       const edges = await dbLocal.getAllFromIndex('edges', 'by-graph', graph.id);
       for (const edge of edges) {
         await this.writeWithQueue(
@@ -414,6 +476,7 @@ export const storageService = {
       try {
         const q = query(collection(db, `projects/${projectId}/graphs`));
         const snapshot = await getDocs(q);
+        await incrementDbReads(snapshot.docs.length || 1);
         return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Graph));
       } catch (error) {
         handleFirestoreError(error, OperationType.LIST, `projects/${projectId}/graphs`);
@@ -442,6 +505,7 @@ export const storageService = {
       try {
         const q = query(collection(db, `projects/${projectId}/graphs/${graphId}/nodes`));
         const snapshot = await getDocs(q);
+        await incrementDbReads(snapshot.docs.length || 1);
         return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as AppNode));
       } catch (error) {
         handleFirestoreError(error, OperationType.LIST, `projects/${projectId}/graphs/${graphId}/nodes`);
@@ -484,6 +548,7 @@ export const storageService = {
       try {
         const q = query(collection(db, `projects/${projectId}/graphs/${graphId}/edges`));
         const snapshot = await getDocs(q);
+        await incrementDbReads(snapshot.docs.length || 1);
         return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as AppEdge));
       } catch (error) {
         handleFirestoreError(error, OperationType.LIST, `projects/${projectId}/graphs/${graphId}/edges`);
@@ -528,6 +593,7 @@ export const storageService = {
       try {
         const q = query(collection(db, `projects/${projectId}/snapshots`));
         const snapshot = await getDocs(q);
+        await incrementDbReads(snapshot.docs.length || 1);
         return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
       } catch (error) {
         handleFirestoreError(error, OperationType.LIST, `projects/${projectId}/snapshots`);
@@ -572,6 +638,7 @@ export const storageService = {
       try {
         const q = query(collection(db, `projects/${projectId}/comments`));
         const snapshot = await getDocs(q);
+        await incrementDbReads(snapshot.docs.length || 1);
         return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
       } catch (error) {
         handleFirestoreError(error, OperationType.LIST, `projects/${projectId}/comments`);
@@ -758,6 +825,7 @@ export const storageService = {
       try {
         const docRef = doc(db, `users/${userId}/settings`, key);
         const docSnap = await getDoc(docRef);
+        await incrementDbReads(1);
         if (docSnap.exists()) {
           return docSnap.data().value;
         }

@@ -24,6 +24,7 @@ interface GraphStore {
   
   nodes: Node[];
   edges: Edge[];
+  graphs: Graph[];
   templates: Template[];
   snapshots: Snapshot[];
   comments: Comment[];
@@ -47,6 +48,8 @@ interface GraphStore {
   issueManagementInstanceTypes: string[];
   cloudMode: boolean;
   devMode: boolean;
+  autoSync: boolean;
+  autoResize: boolean;
   selectedModel: string;
   apiKeys: {
     openai?: string;
@@ -60,8 +63,15 @@ interface GraphStore {
   githubToken: string | null;
   setGithubToken: (token: string | null) => void;
   
+  dbReads: number;
+  dbWrites: number;
+  incrementDbReads: (count?: number) => void;
+  incrementDbWrites: (count?: number) => void;
+  
   setCloudMode: (enabled: boolean) => void;
   setDevMode: (enabled: boolean) => void;
+  setAutoSync: (enabled: boolean) => void;
+  setAutoResize: (enabled: boolean) => void;
   setSelectedModel: (model: string) => void;
   setApiKey: (provider: string, key: string) => void;
   login: () => Promise<User | null>;
@@ -98,7 +108,10 @@ interface GraphStore {
   onConnect: (connection: Connection) => void;
   
   addNode: (position: { x: number; y: number }, type?: string, templateId?: string, shape?: string, parentId?: string) => Promise<void>;
-  updateNodeData: (id: string, data: any) => Promise<void>;
+  updateNodeData: (id: string, data: any, size?: { width: number, height: number }) => Promise<void>;
+  updateNodeParent: (id: string, parentId: string | undefined) => Promise<void>;
+  updateNodeZIndex: (id: string, zIndex: number) => void;
+  updateNodePosition: (id: string, position: { x: number; y: number }) => void;
   updateEdgeLabel: (id: string, label: string) => Promise<void>;
   updateEdgeType: (id: string, type: string) => Promise<void>;
   updateEdgeStyle: (id: string, style: { color?: string; animated?: boolean; hasArrow?: boolean }) => Promise<void>;
@@ -162,6 +175,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
   
   nodes: [],
   edges: [],
+  graphs: [],
   templates: [],
   snapshots: [],
   comments: [],
@@ -184,6 +198,8 @@ export const useGraphStore = create<GraphStore>((set, get) => {
   issueManagementInstanceTypes: ['HREGRC', 'THREGRC'],
   cloudMode: localStorage.getItem('atlas_cloud_mode') === 'true',
   devMode: localStorage.getItem('atlas_dev_mode') === 'true',
+  autoSync: localStorage.getItem('atlas_auto_sync') !== 'false', // Default to true
+  autoResize: localStorage.getItem('atlas_auto_resize') !== 'false', // Default to true
   selectedModel: localStorage.getItem('atlas_selected_model') || 'gemini-3-flash-preview',
   apiKeys: JSON.parse(localStorage.getItem('atlas_api_keys') || '{}'),
   user: null,
@@ -193,6 +209,25 @@ export const useGraphStore = create<GraphStore>((set, get) => {
   githubToken: localStorage.getItem('atlas_github_token'),
   exportFormat: 'json',
   setExportFormat: (format: 'json' | 'xml') => set({ exportFormat: format }),
+
+  dbReads: parseInt(localStorage.getItem('atlas_db_reads') || '0', 10),
+  dbWrites: parseInt(localStorage.getItem('atlas_db_writes') || '0', 10),
+  
+  incrementDbReads: (count = 1) => {
+    set((state) => {
+      const newCount = state.dbReads + count;
+      localStorage.setItem('atlas_db_reads', String(newCount));
+      return { dbReads: newCount };
+    });
+  },
+  
+  incrementDbWrites: (count = 1) => {
+    set((state) => {
+      const newCount = state.dbWrites + count;
+      localStorage.setItem('atlas_db_writes', String(newCount));
+      return { dbWrites: newCount };
+    });
+  },
 
   setGithubToken: (token: string | null) => {
     set({ githubToken: token });
@@ -217,6 +252,15 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     set({ devMode: enabled });
     localStorage.setItem('atlas_dev_mode', String(enabled));
     get().loadProjects();
+  },
+
+  setAutoSync: (enabled: boolean) => {
+    set({ autoSync: enabled });
+    localStorage.setItem('atlas_auto_sync', String(enabled));
+  },
+  setAutoResize: (enabled: boolean) => {
+    set({ autoResize: enabled });
+    localStorage.setItem('atlas_auto_resize', String(enabled));
   },
 
   setSelectedModel: (model: string) => {
@@ -418,18 +462,31 @@ export const useGraphStore = create<GraphStore>((set, get) => {
   },
   
   createProject: async (name: string) => {
-    const { cloudMode, user, projects } = get();
+    const { cloudMode, devMode, autoSync, user, projects } = get();
+    
+    const isLocalOnly = (devMode || !autoSync);
+    
     const newProject: Project = {
       id: uuidv4(),
       name,
       ownerId: user?.uid || 'local-user',
-      members: user?.uid ? [user.uid] : ['local-user'],
+      collaborators: user?.uid ? { [user.uid]: 'editor' } : { 'local-user': 'editor' },
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      isLocalOnly,
     };
 
     // Optimistic update
     set({ projects: [...projects, newProject] });
+
+    // Update local storage for fast access by storageService
+    if (isLocalOnly) {
+      const localProjects = JSON.parse(localStorage.getItem('atlas_local_projects') || '[]');
+      if (!localProjects.includes(newProject.id)) {
+        localProjects.push(newProject.id);
+        localStorage.setItem('atlas_local_projects', JSON.stringify(localProjects));
+      }
+    }
 
     try {
       await storageService.saveProject(newProject, cloudMode);
@@ -494,7 +551,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
             width: n.width,
             height: n.height,
             parentId: parentId,
-            extent: parentId ? 'parent' : undefined,
+            // extent removed
           };
         });
       
@@ -593,7 +650,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
         width: n.width,
         height: n.height,
         parentId: n.parentId,
-        extent: n.parentId ? 'parent' : undefined,
+        // extent removed
       }));
     
     const edges: Edge[] = appEdges.map(e => ({
@@ -628,14 +685,16 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     }
     
     // If expanding (or uncollapsing), ensure it has a decent size
-    const isOpening = isGroup ? !node.data.isCollapsed : !!node.data.isExpanded;
+    const isOpening = isGroup ? !updateData.isCollapsed : !!updateData.isExpanded;
     
-    if (isOpening && (!node.width || node.width < 200)) {
+    if (isOpening) {
+      const width = (node.data.lastWidth as number) || 600;
+      const height = (node.data.lastHeight as number) || 400;
       set({
         nodes: nodes.map(n => n.id === nodeId ? { 
           ...n, 
-          width: 600, 
-          height: 400, 
+          width, 
+          height, 
           data: { ...n.data, ...updateData } 
         } : n),
         focusNodeId: nodeId
@@ -647,29 +706,29 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       }
       await get().autoResizeParent(nodeId);
     } else {
-      await get().updateNodeData(nodeId, updateData);
-      if (isOpening) {
-        set({ focusNodeId: nodeId });
-        await get().autoResizeParent(nodeId);
-      } else {
-        set({ focusNodeId: null });
-      }
+      const updateDataWithLastSize = { ...updateData, lastWidth: node.width, lastHeight: node.height };
+      const size = { width: 200, height: 50 };
+      await get().updateNodeData(nodeId, updateDataWithLastSize, size);
+      set({ focusNodeId: null });
     }
   },
   
   setFocusNodeId: (id: string | null) => set({ focusNodeId: id }),
 
   autoResizeParent: async (parentId: string) => {
+    if (!get().autoResize) return;
     const { nodes, activeProjectId, cloudMode } = get();
     const parent = nodes.find(n => n.id === parentId);
     if (!parent) return;
 
     // Recursive function to get all descendants
-    const getDescendants = (nodeId: string): Node[] => {
+    const getDescendants = (nodeId: string, visited: Set<string> = new Set()): Node[] => {
+      if (visited.has(nodeId)) return [];
+      visited.add(nodeId);
       const children = nodes.filter(n => n.parentId === nodeId);
       let descendants = [...children];
       for (const child of children) {
-        descendants = [...descendants, ...getDescendants(child.id)];
+        descendants = [...descendants, ...getDescendants(child.id, visited)];
       }
       return descendants;
     };
@@ -697,8 +756,8 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     };
 
     // Calculate bounding box of descendants
-    let maxX = 0;
-    let maxY = 0;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
 
     descendants.forEach(descendant => {
       const pos = getAbsolutePosition(descendant);
@@ -710,6 +769,12 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       maxX = Math.max(maxX, x + w);
       maxY = Math.max(maxY, y + h);
     });
+    
+    // If no descendants, use parent's own size
+    if (maxX === -Infinity) {
+        maxX = parent.width || 200;
+        maxY = parent.height || 150;
+    }
 
     const padding = 60;
     const headerHeight = 50;
@@ -813,10 +878,13 @@ export const useGraphStore = create<GraphStore>((set, get) => {
             data: node.data as any,
             parentId: node.parentId
           };
-          await storageService.saveNode(appNode, activeProjectId || undefined, cloudMode);
+          debouncedSaveNode(appNode, activeProjectId || undefined, cloudMode);
           
           if (node.parentId) {
-            parentIdsToResize.add(node.parentId);
+            const isDragging = change.type === 'position' && (change as any).dragging;
+            if (!isDragging) {
+              parentIdsToResize.add(node.parentId);
+            }
           }
         }
       } else if (change.type === 'remove') {
@@ -889,14 +957,14 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     get().takeSnapshot();
     
     let initialData: any = {
-      title: type === 'groupNode' ? 'New Group' : 'New Node',
+      title: type === 'groupNode' ? 'New Group' : (type === 'inputNode' ? 'Input' : (type === 'outputNode' ? 'Output' : (type === 'none' ? '' : 'New Node'))),
       description: '',
-      nodeType: type === 'groupNode' ? 'group' : 'default',
+      nodeType: type === 'groupNode' ? 'group' : (type === 'inputNode' ? 'input' : (type === 'outputNode' ? 'output' : (type === 'none' ? '' : 'default'))),
       metadata: {},
       links: [],
       codeSnippets: [],
       tags: [],
-      shape: shape || 'rectangle',
+      shape: shape || (type === 'inputNode' || type === 'outputNode' ? 'pill' : 'rectangle'),
       isExpanded: false,
     };
     
@@ -925,7 +993,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       position,
       data: initialData,
       parentId,
-      extent: parentId ? 'parent' : undefined,
+      // extent removed
       width: type === 'groupNode' ? 300 : 200,
       height: type === 'groupNode' ? 200 : 120,
     };
@@ -950,14 +1018,14 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     }
   },
   
-  updateNodeData: async (id: string, data: any) => {
+  updateNodeData: async (id: string, data: any, size?: { width: number, height: number }) => {
     const { activeGraphId, activeProjectId, cloudMode, nodes } = get();
     if (!activeGraphId) return;
     
     get().takeSnapshot();
     
     set({
-      nodes: nodes.map(n => n.id === id ? { ...n, data: { ...n.data, ...data } } : n)
+      nodes: nodes.map(n => n.id === id ? { ...n, data: { ...n.data, ...data }, ...(size || {}) } : n)
     });
     
     const updatedNode = get().nodes.find(n => n.id === id);
@@ -974,6 +1042,56 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       };
       debouncedSaveNode(appNode, activeProjectId || undefined, cloudMode);
     }
+  },
+
+  updateNodeParent: async (id: string, parentId: string | undefined) => {
+    const { activeGraphId, activeProjectId, cloudMode, nodes } = get();
+    if (!activeGraphId) return;
+
+    // Cycle detection
+    if (parentId) {
+        let currentParentId = parentId;
+        while(currentParentId) {
+            if (currentParentId === id) return; // Cycle detected
+            const parent = nodes.find(n => n.id === currentParentId);
+            currentParentId = parent?.parentId;
+        }
+    }
+
+    get().takeSnapshot();
+
+    set({
+      nodes: nodes.map(n => n.id === id ? { ...n, parentId } : n)
+    });
+
+    const updatedNode = get().nodes.find(n => n.id === id);
+    if (updatedNode) {
+      const appNode: AppNode = {
+        id: updatedNode.id,
+        graphId: activeGraphId,
+        position: updatedNode.position,
+        width: updatedNode.width,
+        height: updatedNode.height,
+        type: updatedNode.type || 'customNode',
+        data: updatedNode.data as any,
+        parentId: updatedNode.parentId
+      };
+      debouncedSaveNode(appNode, activeProjectId || undefined, cloudMode);
+    }
+  },
+
+  updateNodeZIndex: (id: string, zIndex: number) => {
+    const { nodes } = get();
+    set({
+      nodes: nodes.map(n => n.id === id ? { ...n, zIndex } : n)
+    });
+  },
+
+  updateNodePosition: (id: string, position: { x: number; y: number }) => {
+    const { nodes } = get();
+    set({
+      nodes: nodes.map(n => n.id === id ? { ...n, position } : n)
+    });
   },
   
   updateEdgeLabel: async (id: string, label: string) => {
@@ -1177,7 +1295,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
             x: n.position.x - groupPosition.x,
             y: n.position.y - groupPosition.y,
           },
-          extent: 'parent' as const,
+          // extent removed
         };
       }
       return n;
@@ -1236,7 +1354,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
               x: n.position.x + group.position.x,
               y: n.position.y + group.position.y,
             },
-            extent: undefined,
+            // extent removed
           };
         }
         return n;
@@ -1315,7 +1433,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
 
     get().takeSnapshot();
 
-    const dagreGraph = new dagre.graphlib.Graph();
+    const dagreGraph = new dagre.graphlib.Graph({ compound: true });
     dagreGraph.setDefaultEdgeLabel(() => ({}));
     dagreGraph.setGraph({ rankdir: 'TB', nodesep: 100, ranksep: 100 });
 
@@ -1326,20 +1444,76 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       });
     });
 
+    nodes.forEach((node) => {
+      if (node.parentId) {
+        dagreGraph.setParent(node.id, node.parentId);
+      }
+    });
+
     edges.forEach((edge) => {
       dagreGraph.setEdge(edge.source, edge.target);
     });
 
-    dagre.layout(dagreGraph);
+    try {
+      dagre.layout(dagreGraph);
+    } catch (e) {
+      console.warn('Dagre layout failed (possibly due to cycles or parent-child edges). Falling back to non-compound layout.', e);
+      
+      // Recreate graph without compound option
+      const fallbackGraph = new dagre.graphlib.Graph();
+      fallbackGraph.setDefaultEdgeLabel(() => ({}));
+      fallbackGraph.setGraph({ rankdir: 'TB', nodesep: 100, ranksep: 100 });
+
+      nodes.forEach((node) => {
+        fallbackGraph.setNode(node.id, { 
+          width: node.measured?.width || node.width || 150, 
+          height: node.measured?.height || node.height || 100 
+        });
+      });
+
+      edges.forEach((edge) => {
+        fallbackGraph.setEdge(edge.source, edge.target);
+      });
+
+      try {
+        dagre.layout(fallbackGraph);
+        // Copy positions back to dagreGraph so the rest of the code works
+        nodes.forEach((node) => {
+          const pos = fallbackGraph.node(node.id);
+          dagreGraph.setNode(node.id, pos);
+        });
+      } catch (e2) {
+        console.warn('Fallback layout also failed.', e2);
+        return;
+      }
+    }
 
     const newNodes = nodes.map((node) => {
       const nodeWithPosition = dagreGraph.node(node.id);
+      const width = nodeWithPosition.width || node.measured?.width || node.width || 150;
+      const height = nodeWithPosition.height || node.measured?.height || node.height || 100;
+      
+      let x = nodeWithPosition.x - width / 2;
+      let y = nodeWithPosition.y - height / 2;
+      
+      if (node.parentId) {
+        const parentWithPosition = dagreGraph.node(node.parentId);
+        const parentNode = nodes.find(n => n.id === node.parentId);
+        if (parentWithPosition && parentNode) {
+          const parentWidth = parentWithPosition.width || parentNode.measured?.width || parentNode.width || 150;
+          const parentHeight = parentWithPosition.height || parentNode.measured?.height || parentNode.height || 100;
+          const parentX = parentWithPosition.x - parentWidth / 2;
+          const parentY = parentWithPosition.y - parentHeight / 2;
+          x -= parentX;
+          y -= parentY;
+        }
+      }
+
       return {
         ...node,
-        position: {
-          x: nodeWithPosition.x - (node.measured?.width || node.width || 150) / 2,
-          y: nodeWithPosition.y - (node.measured?.height || node.height || 100) / 2,
-        },
+        width,
+        height,
+        position: { x, y },
       };
     });
 
@@ -1501,49 +1675,104 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       }
       const treeData = await treeResponse.json();
       
-      // Limit tree size to avoid overwhelming the prompt (e.g., top 100 items)
-      const treeItems = treeData.tree
-        .filter((item: any) => !item.path.startsWith('.') && !item.path.includes('node_modules'))
-        .slice(0, 150)
+      // Limit tree size to avoid overwhelming the prompt
+      const filteredTree = treeData.tree
+        .filter((item: any) => !item.path.startsWith('.') && !item.path.includes('node_modules') && !item.path.includes('dist') && !item.path.includes('build'))
+        .slice(0, 300);
+
+      const treeItems = filteredTree
         .map((item: any) => `${item.type === 'tree' ? '[DIR]' : '[FILE]'} ${item.path}`)
         .join('\n');
 
-      const result = await geminiService.analyzeRepo(treeItems, selectedModel);
+      const result = await geminiService.analyzeRepoStructure(treeItems, selectedModel);
       
-      const idMap: Record<string, string> = {};
+      const pathMap: Record<string, string> = {};
       const finalNewNodes: Node[] = [];
 
-      result.nodes.forEach((n, index) => {
+      // Sort to ensure parents are processed before children
+      const sortedTree = [...filteredTree].sort((a, b) => a.path.length - b.path.length);
+
+      // Fetch file contents in parallel with a limit
+      const fileContents: Record<string, string> = {};
+      const fetchPromises = sortedTree.filter(item => item.type === 'blob').map(async (item) => {
+        try {
+          const response = await fetch(`https://raw.githubusercontent.com/${owner}/${repo}/${defaultBranch}/${item.path}`);
+          if (response.ok) {
+            fileContents[item.path] = await response.text();
+          }
+        } catch (e) {
+          console.error(`Failed to fetch content for ${item.path}`, e);
+        }
+      });
+      
+      // Wait for all fetches to complete (or fail)
+      await Promise.allSettled(fetchPromises);
+
+      sortedTree.forEach((item: any) => {
         const newId = uuidv4();
-        idMap[n.id] = newId;
+        pathMap[item.path] = newId;
         
+        const pathParts = item.path.split('/');
+        const name = pathParts[pathParts.length - 1];
+        const parentPath = pathParts.slice(0, -1).join('/');
+        const parentId = parentPath ? pathMap[parentPath] : undefined;
+        
+        const meta = result.metadata[item.path] || { description: '', tags: [], type: 'default' };
+        
+        const codeSnippets = [];
+        if (item.type === 'blob' && fileContents[item.path]) {
+          // Determine language from extension
+          const ext = name.split('.').pop() || 'text';
+          const languageMap: Record<string, string> = {
+            'js': 'javascript', 'jsx': 'javascript', 'ts': 'typescript', 'tsx': 'typescript',
+            'py': 'python', 'rb': 'ruby', 'java': 'java', 'go': 'go', 'rs': 'rust',
+            'html': 'html', 'css': 'css', 'json': 'json', 'md': 'markdown', 'yml': 'yaml', 'yaml': 'yaml'
+          };
+          codeSnippets.push({
+            id: uuidv4(),
+            title: name,
+            code: fileContents[item.path],
+            language: languageMap[ext] || ext
+          });
+        }
+
         finalNewNodes.push({
           id: newId,
-          type: 'customNode',
-          position: { x: 100, y: index * 150 },
+          type: item.type === 'tree' ? 'groupNode' : 'customNode',
+          position: { x: Math.random() * 800, y: Math.random() * 800 },
+          parentId,
+          width: item.type === 'tree' ? 400 : 200,
+          height: item.type === 'tree' ? 300 : 120,
           data: {
-            title: n.title,
-            description: n.description,
-            nodeType: n.type,
-            shape: n.type === 'decision' ? 'diamond' : 'rectangle',
+            title: name,
+            description: meta.description || '',
+            nodeType: item.type === 'tree' ? 'group' : (meta.type || 'default'),
+            shape: item.type === 'tree' ? 'rectangle' : (meta.type === 'decision' ? 'diamond' : 'rectangle'),
+            isCollapsed: false,
             isExpanded: false,
-            tags: ['github-import'],
-            links: [],
-            codeSnippets: [],
-            metadata: {}
+            tags: ['github-import', ...(meta.tags || [])],
+            links: [{ id: uuidv4(), label: 'View on GitHub', url: `https://github.com/${owner}/${repo}/blob/${defaultBranch}/${item.path}` }],
+            codeSnippets,
+            metadata: { path: item.path }
           }
         });
       });
 
-      const finalNewEdges: Edge[] = result.edges.map(e => ({
-        id: uuidv4(),
-        source: idMap[e.source] || e.source,
-        target: idMap[e.target] || e.target,
-        label: e.label,
-        type: 'smoothstep',
-        markerEnd: { type: MarkerType.ArrowClosed, color: '#94a3b8' },
-        data: { relationshipType: e.label, hasArrow: true }
-      }));
+      const finalNewEdges: Edge[] = result.edges.map(e => {
+        const sourceId = pathMap[e.source];
+        const targetId = pathMap[e.target];
+        if (!sourceId || !targetId) return null;
+        
+        return {
+          id: uuidv4(),
+          source: sourceId,
+          target: targetId,
+          label: e.label,
+          type: 'smoothstep',
+          markerEnd: { type: MarkerType.ArrowClosed, color: '#94a3b8' },
+          data: { relationshipType: e.label, hasArrow: true }
+        };
+      }).filter(Boolean) as Edge[];
 
       set({ 
         nodes: [...get().nodes, ...finalNewNodes], 
@@ -1752,6 +1981,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     // Listen for nodes
     const nodesRef = collection(db, `projects/${activeProjectId}/graphs/${graphId}/nodes`);
     const unsubNodes = onSnapshot(nodesRef, (snapshot) => {
+      get().incrementDbReads(snapshot.docs.length || 1);
       const remoteNodes = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as AppNode));
       
       const mergedNodes = remoteNodes.map(rn => {
@@ -1763,7 +1993,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
           width: rn.width,
           height: rn.height,
           parentId: rn.parentId,
-          extent: rn.parentId ? 'parent' : undefined,
+          // extent removed
         } as Node;
       });
       
@@ -1773,6 +2003,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     // Listen for edges
     const edgesRef = collection(db, `projects/${activeProjectId}/graphs/${graphId}/edges`);
     const unsubEdges = onSnapshot(edgesRef, (snapshot) => {
+      get().incrementDbReads(snapshot.docs.length || 1);
       const remoteEdges = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as AppEdge));
       const mergedEdges = remoteEdges.map(re => ({
         id: re.id,
@@ -1794,6 +2025,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     // Listen for presence
     const presenceRef = collection(db, `projects/${activeProjectId}/presence`);
     const unsubPresence = onSnapshot(presenceRef, (snapshot) => {
+      get().incrementDbReads(snapshot.docs.length || 1);
       const presenceMap: Record<string, any> = {};
       snapshot.docs.forEach(doc => {
         // Only show users active in the last 5 minutes
@@ -1808,6 +2040,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     // Listen for snapshots
     const snapshotsRef = collection(db, `projects/${activeProjectId}/snapshots`);
     const unsubSnapshots = onSnapshot(snapshotsRef, (snapshot) => {
+      get().incrementDbReads(snapshot.docs.length || 1);
       const updatedSnapshots = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Snapshot));
       set({ snapshots: updatedSnapshots.sort((a, b) => b.timestamp - a.timestamp) });
     });
@@ -1815,6 +2048,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     // Listen for comments
     const commentsRef = collection(db, `projects/${activeProjectId}/comments`);
     const unsubComments = onSnapshot(commentsRef, (snapshot) => {
+      get().incrementDbReads(snapshot.docs.length || 1);
       const updatedComments = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Comment));
       set({ comments: updatedComments.sort((a, b) => b.timestamp - a.timestamp) });
     });

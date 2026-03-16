@@ -1,4 +1,4 @@
-import { X, Cloud, HardDrive, Key, LogIn, LogOut, Shield, Users, Zap, Sparkles, Image as ImageIcon, Plus, Trash2, Globe, ExternalLink, Settings as SettingsIcon } from 'lucide-react';
+import { X, Cloud, HardDrive, Key, LogIn, LogOut, Shield, Users, Zap, Sparkles, Image as ImageIcon, Plus, Trash2, Globe, ExternalLink, Settings as SettingsIcon, RefreshCw, Maximize2 } from 'lucide-react';
 import { useGraphStore } from '../store/graphStore';
 import { useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
@@ -13,6 +13,10 @@ export default function Settings({ onClose }: SettingsProps) {
     setCloudMode, 
     devMode,
     setDevMode,
+    autoSync,
+    setAutoSync,
+    autoResize,
+    setAutoResize,
     selectedModel,
     setSelectedModel,
     apiKeys, 
@@ -158,28 +162,78 @@ export default function Settings({ onClose }: SettingsProps) {
               </button>
             </div>
 
-            <div className="mt-4 flex items-center justify-between p-4 bg-slate-800/50 border border-slate-700 rounded-xl">
-              <div className="flex items-center gap-3">
-                <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${devMode ? 'bg-amber-500/20' : 'bg-slate-700'}`}>
-                  <Zap className={`w-5 h-5 ${devMode ? 'text-amber-400' : 'text-slate-400'}`} />
+            <div className="mt-4 flex flex-col gap-4">
+              <div className="flex items-center justify-between p-4 bg-slate-800/50 border border-slate-700 rounded-xl">
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${devMode ? 'bg-amber-500/20' : 'bg-slate-700'}`}>
+                    <Zap className={`w-5 h-5 ${devMode ? 'text-amber-400' : 'text-slate-400'}`} />
+                  </div>
+                  <div>
+                    <div className="text-sm font-bold text-white">Developer Mode</div>
+                    <div className="text-xs text-slate-400">Store projects locally, only sync structural changes</div>
+                  </div>
                 </div>
-                <div>
-                  <div className="text-sm font-bold text-white">Developer Mode</div>
-                  <div className="text-xs text-slate-400">Store projects locally, only sync structural changes</div>
-                </div>
-              </div>
-              <button
-                onClick={() => setDevMode(!devMode)}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-slate-900 ${
-                  devMode ? 'bg-amber-500' : 'bg-slate-600'
-                }`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    devMode ? 'translate-x-6' : 'translate-x-1'
+                <button
+                  onClick={() => setDevMode(!devMode)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-slate-900 ${
+                    devMode ? 'bg-amber-500' : 'bg-slate-600'
                   }`}
-                />
-              </button>
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      devMode ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between p-4 bg-slate-800/50 border border-slate-700 rounded-xl">
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${autoSync ? 'bg-emerald-500/20' : 'bg-slate-700'}`}>
+                    <RefreshCw className={`w-5 h-5 ${autoSync ? 'text-emerald-400' : 'text-slate-400'}`} />
+                  </div>
+                  <div>
+                    <div className="text-sm font-bold text-white">Auto Sync</div>
+                    <div className="text-xs text-slate-400">Automatically sync changes to the cloud (when Cloud Mode is on)</div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setAutoSync(!autoSync)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-slate-900 ${
+                    autoSync ? 'bg-emerald-500' : 'bg-slate-600'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      autoSync ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between p-4 bg-slate-800/50 border border-slate-700 rounded-xl">
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${autoResize ? 'bg-indigo-500/20' : 'bg-slate-700'}`}>
+                    <Maximize2 className={`w-5 h-5 ${autoResize ? 'text-indigo-400' : 'text-slate-400'}`} />
+                  </div>
+                  <div>
+                    <div className="text-sm font-bold text-white">Auto-Resize Parent</div>
+                    <div className="text-xs text-slate-400">Automatically resize parent nodes when children move</div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setAutoResize(!autoResize)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-slate-900 ${
+                    autoResize ? 'bg-indigo-500' : 'bg-slate-600'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      autoResize ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
             </div>
 
             {!user && !isLoggingIn && isOnline && (

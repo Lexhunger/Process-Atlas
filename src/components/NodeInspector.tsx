@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useGraphStore } from '../store/graphStore';
-import { X, Plus, Trash2, Link as LinkIcon, Layers, Edit2, Check, ExternalLink, Copy, MoveRight, Image as ImageIcon, Eye, Type, Palette, ChevronDown, Settings as SettingsIcon } from 'lucide-react';
+import { X, Plus, Trash2, Link as LinkIcon, Layers, Edit2, Check, ExternalLink, Copy, MoveRight, Image as ImageIcon, Eye, Type, Palette, ChevronDown, Settings as SettingsIcon, ChevronRight, ChevronLeft } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import CodeSnippetViewer from './CodeSnippetViewer';
 import { storageService } from '../services/storageService';
@@ -9,7 +9,7 @@ import { icons } from '../utils/icons';
 import Markdown from 'react-markdown';
 import { PASTEL_COLORS } from '../constants';
 
-export default function NodeInspector() {
+export default function NodeInspector({ isOpen, setIsOpen }: { isOpen: boolean; setIsOpen: (isOpen: boolean) => void }) {
   const { 
     selectedNodeId, 
     selectedEdgeId, 
@@ -37,6 +37,16 @@ export default function NodeInspector() {
   const [isPreviewingMarkdown, setIsPreviewingMarkdown] = useState(false);
   const [showTypeInput, setShowTypeInput] = useState(false);
   const [newTypeName, setNewTypeName] = useState('');
+
+  if (!isOpen) {
+    return (
+      <div className="w-12 h-full bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col items-center py-4 z-50">
+        <button onClick={() => setIsOpen(true)} className="p-2 text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400">
+          <ChevronRight className="w-5 h-5" />
+        </button>
+      </div>
+    );
+  }
 
   const node = nodes.find((n) => n.id === selectedNodeId);
   const edge = edges.find((e) => e.id === selectedEdgeId);
@@ -94,12 +104,27 @@ export default function NodeInspector() {
 
   if (!node && !edge) {
     return (
-      <div className="w-80 h-full bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col items-center justify-center p-6 text-center text-slate-500 dark:text-slate-400">
-        <div className="w-16 h-16 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mb-4">
-          <Layers className="w-8 h-8 text-slate-400 dark:text-slate-500" />
+      <div className="w-80 h-full bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col p-4 overflow-y-auto">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100 uppercase tracking-wider">Nodes in Current Level</h2>
+          <button onClick={() => setIsOpen(false)} className="p-1 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400">
+            <ChevronLeft className="w-4 h-4" />
+          </button>
         </div>
-        <h3 className="text-lg font-medium text-slate-900 dark:text-slate-100 mb-2">No Item Selected</h3>
-        <p className="text-sm">Click on a node or edge in the canvas to view and edit its details.</p>
+        <div className="space-y-2">
+          {nodes.map((n) => (
+            <button
+              key={n.id}
+              onClick={() => selectNode(n.id)}
+              className="w-full text-left px-3 py-2 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md text-sm text-slate-700 dark:text-slate-300 transition-colors"
+            >
+              {(n.data as any).title || 'Untitled'}
+            </button>
+          ))}
+          {nodes.length === 0 && (
+            <p className="text-sm text-slate-500 dark:text-slate-400 italic">No nodes in this level.</p>
+          )}
+        </div>
       </div>
     );
   }
@@ -121,10 +146,10 @@ export default function NodeInspector() {
               <Trash2 className="w-4 h-4" />
             </button>
             <button
-              onClick={() => selectEdge(null)}
+              onClick={() => setIsOpen(false)}
               className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 rounded transition-colors"
             >
-              <X className="w-4 h-4" />
+              <ChevronLeft className="w-4 h-4" />
             </button>
           </div>
         </div>
@@ -246,11 +271,11 @@ export default function NodeInspector() {
             <Trash2 className="w-4 h-4" />
           </button>
           <button
-            onClick={() => selectNode(null)}
+            onClick={() => setIsOpen(false)}
             className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 rounded transition-colors"
             title="Close Inspector"
           >
-            <X className="w-4 h-4" />
+            <ChevronLeft className="w-4 h-4" />
           </button>
         </div>
       </div>
@@ -286,6 +311,19 @@ export default function NodeInspector() {
         {activeTab === 'details' && (
           <>
             <div className="space-y-4">
+              {/* Parent/Child Info */}
+              <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+                <h3 className="text-xs font-semibold text-slate-900 dark:text-slate-100 uppercase tracking-wider mb-2">Hierarchy</h3>
+                <div className="space-y-1">
+                  <p className="text-xs text-slate-600 dark:text-slate-400">
+                    Parent: {node.parentId ? (nodes.find(n => n.id === node.parentId)?.data as any)?.title || 'Unknown' : 'None'}
+                  </p>
+                  <p className="text-xs text-slate-600 dark:text-slate-400">
+                    Children: {nodes.filter(n => n.parentId === node.id).length}
+                  </p>
+                </div>
+              </div>
+              
               <div>
                 <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Title</label>
                 <input

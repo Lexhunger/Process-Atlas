@@ -69,14 +69,26 @@ export default function CustomNode({ id, data, selected }: { id: string; data: N
           isVisible={selected} 
           minWidth={200} 
           minHeight={150} 
+          onResize={(_, params) => {
+            useGraphStore.getState().updateNodePosition(id, { x: params.x, y: params.y });
+            useGraphStore.getState().updateNodeData(id, data, { width: params.width, height: params.height });
+          }}
           onResizeEnd={() => useGraphStore.getState().takeSnapshot()}
         />
-        <Handle type="target" position={Position.Top} id="top" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-20" />
-        <Handle type="source" position={Position.Right} id="right" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-20" />
-        <Handle type="source" position={Position.Bottom} id="bottom" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-20" />
-        <Handle type="target" position={Position.Left} id="left" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-20" />
+        {data.nodeType !== 'input' && (
+          <>
+            <Handle type="target" position={Position.Top} id="top" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50" />
+            <Handle type="target" position={Position.Left} id="left" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50" />
+          </>
+        )}
+        {data.nodeType !== 'output' && (
+          <>
+            <Handle type="source" position={Position.Right} id="right" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50" />
+            <Handle type="source" position={Position.Bottom} id="bottom" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50" />
+          </>
+        )}
         <div
-          className={`w-full h-full rounded-xl border-2 backdrop-blur-sm transition-colors flex flex-col relative ${
+          className={`w-full h-full rounded-xl border-2 backdrop-blur-sm flex flex-col relative ${
             selected ? 'border-indigo-500 ring-2 ring-indigo-200 dark:ring-indigo-900/50' : 'border-slate-300 dark:border-slate-700 border-dashed'
           }`}
           style={{ backgroundColor: data.color ? `${data.color}80` : undefined }}
@@ -86,7 +98,7 @@ export default function CustomNode({ id, data, selected }: { id: string; data: N
               <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
                 {renderIcon("w-4 h-4")}
                 <span className="text-xs font-semibold uppercase tracking-wider">
-                  {data.nodeType || 'Node'}
+                  {data.nodeType === 'default' ? '' : (data.nodeType || '')}
                 </span>
               </div>
               <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200 ml-2">{data.title}</h3>
@@ -105,7 +117,7 @@ export default function CustomNode({ id, data, selected }: { id: string; data: N
               <ChevronDown className="w-4 h-4" />
             </button>
           </div>
-          <div className="flex-1 p-4 pointer-events-none">
+          <div className="flex-1 p-4">
             {/* Children will be rendered here by React Flow */}
           </div>
           {selected && (
@@ -135,7 +147,7 @@ export default function CustomNode({ id, data, selected }: { id: string; data: N
   // but for simplicity we can use standard CSS for most.
   
   const containerClasses = `relative flex items-center justify-center ${
-    isDiamond ? 'w-40 h-40' : 
+    isDiamond ? 'w-40 h-40 rotate-45' : 
     isCircle ? 'w-40 h-40' : 
     isPill ? 'min-w-[160px] px-4 py-2' :
     isParallelogram ? 'min-w-[160px] px-6 py-2' :
@@ -147,12 +159,12 @@ export default function CustomNode({ id, data, selected }: { id: string; data: N
     'min-w-[150px] p-3'
   }`;
 
-  const bgClasses = `absolute inset-0 border-2 shadow-md transition-all ${
+  const bgClasses = `absolute inset-0 border-2 shadow-md ${
     selected ? 'border-indigo-500 shadow-lg ring-2 ring-indigo-200 dark:ring-indigo-900/50' : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
   } ${
     isSimulationActive ? 'ring-4 ring-emerald-400 dark:ring-emerald-500 ring-offset-2 dark:ring-offset-slate-900 z-50 animate-pulse' : ''
   } ${
-    isDiamond ? 'rotate-45 rounded-lg m-2' :
+    isDiamond ? 'rounded-lg' :
     isCircle ? 'rounded-full' :
     isPill ? 'rounded-full' :
     isParallelogram ? '-skew-x-12 rounded-lg' :
@@ -165,7 +177,8 @@ export default function CustomNode({ id, data, selected }: { id: string; data: N
   }`;
 
   const contentClasses = `relative z-10 flex flex-col gap-1 w-full ${
-    isDiamond || isCircle || isGear ? 'items-center text-center max-w-[110px]' : ''
+    isDiamond ? 'items-center text-center max-w-[110px] -rotate-45' :
+    isCircle || isGear ? 'items-center text-center max-w-[110px]' : ''
   }`;
 
   const getStyle = () => {
@@ -201,17 +214,25 @@ export default function CustomNode({ id, data, selected }: { id: string; data: N
         </>
       )}
       
-      <Handle type="target" position={Position.Top} id="top" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-20" />
-      <Handle type="source" position={Position.Right} id="right" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-20" />
-      <Handle type="source" position={Position.Bottom} id="bottom" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-20" />
-      <Handle type="target" position={Position.Left} id="left" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-20" />
+      {data.nodeType !== 'input' && (
+        <>
+          <Handle type="target" position={Position.Top} id="top" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50" />
+          <Handle type="target" position={Position.Left} id="left" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50" />
+        </>
+      )}
+      {data.nodeType !== 'output' && (
+        <>
+          <Handle type="source" position={Position.Right} id="right" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50" />
+          <Handle type="source" position={Position.Bottom} id="bottom" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50" />
+        </>
+      )}
       
       <div className={contentClasses}>
         <div className={`flex items-center gap-2 ${isDiamond || isCircle ? 'justify-center' : 'justify-between'}`}>
           <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
             {renderIcon("w-3.5 h-3.5")}
             <span className="text-xs font-semibold uppercase tracking-wider">
-              {data.nodeType || 'Node'}
+              {data.nodeType === 'default' ? '' : (data.nodeType || '')}
             </span>
           </div>
           {childCount > 0 && (

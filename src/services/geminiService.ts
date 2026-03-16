@@ -158,6 +158,69 @@ export const geminiService = {
     }
   },
 
+  async analyzeRepoStructure(repoStructure: string, model: string = "gemini-3.1-pro-preview"): Promise<{ metadata: Record<string, { description: string, tags: string[], type: string }>, edges: { source: string, target: string, label: string }[] }> {
+    const response = await ai.models.generateContent({
+      model: model,
+      contents: `Analyze the following GitHub repository structure.
+      
+      Repository Structure:
+      ${repoStructure}
+      
+      For each file or directory path, provide a brief description, relevant tags (e.g., 'frontend', 'backend', 'config', 'component', 'util'), and a type ('default', 'action', 'decision').
+      Also, infer logical dependencies or data flows between these paths and return them as edges.
+      
+      Return a JSON object with 'metadata' (key is the path) and 'edges'.`,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            metadata: {
+              type: Type.OBJECT,
+              description: "Map of file/directory paths to their metadata",
+              additionalProperties: {
+                type: Type.OBJECT,
+                properties: {
+                  description: { type: Type.STRING },
+                  tags: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  type: { type: Type.STRING, enum: ['default', 'action', 'decision'] }
+                },
+                required: ['description', 'tags', 'type']
+              }
+            },
+            edges: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  source: { type: Type.STRING, description: "Source path" },
+                  target: { type: Type.STRING, description: "Target path" },
+                  label: { type: Type.STRING }
+                },
+                required: ['source', 'target', 'label']
+              }
+            }
+          },
+          required: ['metadata', 'edges']
+        }
+      }
+    });
+
+    if (response.usageMetadata) {
+      usageService.logAIUsage(model, {
+        promptTokens: response.usageMetadata.promptTokenCount || 0,
+        candidatesTokens: response.usageMetadata.candidatesTokenCount || 0
+      }, 'analyzeRepoStructure');
+    }
+
+    try {
+      return JSON.parse(response.text);
+    } catch (e) {
+      console.error("Failed to parse Gemini response", e);
+      throw new Error("Failed to analyze repository structure. Please try again.");
+    }
+  },
+
   async generateRaw(prompt: string, model: string = "gemini-3-flash-preview"): Promise<string> {
     const response = await ai.models.generateContent({
       model: model,
