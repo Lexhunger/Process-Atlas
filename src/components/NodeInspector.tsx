@@ -168,7 +168,25 @@ export default function NodeInspector({ isOpen, setIsOpen }: { isOpen: boolean; 
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Edge Type</label>
+              <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Relationship Type</label>
+              <select
+                value={(edge.data?.relationshipType as string) || 'flow'}
+                onChange={(e) => updateEdgeStyle(edge.id, { relationshipType: e.target.value })}
+                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-slate-900 dark:text-slate-100"
+              >
+                <option value="flow">Flow (Solid Arrow)</option>
+                <option value="dependency">Dependency (Dashed Arrow)</option>
+                <option value="association">Association (Solid Line)</option>
+                <option value="extends">Extends (Inheritance)</option>
+                <option value="implements">Implements (Realization)</option>
+                <option value="aggregation">Aggregation (Diamond)</option>
+                <option value="composition">Composition (Filled Diamond)</option>
+                <option value="bidirectional">Bidirectional (Two Arrows)</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Edge Path Type</label>
               <select
                 value={edge.type || 'default'}
                 onChange={(e) => updateEdgeType(edge.id, e.target.value)}
@@ -408,8 +426,17 @@ export default function NodeInspector({ isOpen, setIsOpen }: { isOpen: boolean; 
                   <option value="pill">Pill</option>
                   <option value="parallelogram">Parallelogram</option>
                   <option value="hexagon">Hexagon</option>
-                  <option value="cylinder">Cylinder</option>
+                  <option value="cylinder">Database / Cylinder</option>
                   <option value="document">Document</option>
+                  <option value="note">Sticky Note</option>
+                  <option value="folder">Folder</option>
+                  <option value="step">Chevron Step</option>
+                  <option value="cloud">Cloud</option>
+                  <option value="actor">Actor</option>
+                  <option value="callout">Callout / Speech Bubble</option>
+                  <option value="browser">Browser Window</option>
+                  <option value="stack">Stack / Layers</option>
+                  <option value="queue">Queue / Buffer</option>
                   <option value="component">Component</option>
                   <option value="gear">Gear</option>
                   <option value="jira">Issue Ticket</option>

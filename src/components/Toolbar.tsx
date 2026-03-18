@@ -3,7 +3,7 @@ import {
   Search, Download, Upload, Moon, Sun, Combine, Ungroup, Undo2, Redo2, 
   Wand2, Layout, BarChart3, Sparkles, Play, Square, FastForward, X, 
   ChevronDown, MonitorPlay, FileText, Image as ImageIcon, Zap, Tags, Settings as SettingsIcon,
-  Github, LogIn, Activity, LogOut, User, Cloud, History, MessageSquare, Layout as LayoutIcon, Share2, RefreshCw
+  Github, LogIn, Activity, LogOut, User, Cloud, History, MessageSquare, Layout as LayoutIcon, Share2, RefreshCw, Network
 } from 'lucide-react';
 import { useRef, useEffect, useState } from 'react';
 import Dashboard from './Dashboard';
@@ -60,7 +60,8 @@ export default function Toolbar({
     autoSync,
     isOnline,
     exportFormat,
-    setExportFormat
+    setExportFormat,
+    aiEnabled
   } = useGraphStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const toolsRef = useRef<HTMLDivElement>(null);
@@ -317,7 +318,7 @@ export default function Toolbar({
     <div className="flex items-center justify-between h-14 px-6 bg-slate-900 text-white shadow-md z-20 relative">
       <div className="flex items-center gap-3">
         <div className="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center shadow-inner">
-          <span className="font-bold text-white text-lg">P</span>
+          <Network className="w-5 h-5 text-white" />
         </div>
         <h1 className="text-lg font-bold tracking-tight">Process Atlas</h1>
       </div>
@@ -450,7 +451,42 @@ export default function Toolbar({
                   </button>
 
                   <div className="h-px bg-slate-800 my-1 mx-2"></div>
-                  <div className="px-3 py-1 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Layout & AI</div>
+                  <div className="px-3 py-1 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Project</div>
+
+                  <button
+                    onClick={() => {
+                      handleExport();
+                      setIsToolsOpen(false);
+                    }}
+                    className="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium text-slate-300 hover:bg-slate-800 rounded-lg transition-colors group"
+                  >
+                    <div className="w-8 h-8 bg-slate-800 rounded-lg flex items-center justify-center group-hover:bg-slate-700 transition-colors">
+                      <Download className="w-4 h-4" />
+                    </div>
+                    <div className="flex flex-col items-start">
+                      <span>Export Project</span>
+                      <span className="text-[10px] text-slate-500 font-normal">Save as {exportFormat.toUpperCase()}</span>
+                    </div>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      fileInputRef.current?.click();
+                      setIsToolsOpen(false);
+                    }}
+                    className="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium text-slate-300 hover:bg-slate-800 rounded-lg transition-colors group"
+                  >
+                    <div className="w-8 h-8 bg-slate-800 rounded-lg flex items-center justify-center group-hover:bg-slate-700 transition-colors">
+                      <Upload className="w-4 h-4" />
+                    </div>
+                    <div className="flex flex-col items-start">
+                      <span>Import Project</span>
+                      <span className="text-[10px] text-slate-500 font-normal">Load from JSON/XML</span>
+                    </div>
+                  </button>
+
+                  <div className="h-px bg-slate-800 my-1 mx-2"></div>
+                  <div className="px-3 py-1 text-[10px] font-bold text-slate-500 uppercase tracking-widest">{aiEnabled ? 'Layout & AI' : 'Layout'}</div>
                   
                   <button
                     onClick={() => {
@@ -468,77 +504,81 @@ export default function Toolbar({
                     </div>
                   </button>
 
-                  <button
-                    onClick={() => {
-                      if (!isOnline) return;
-                      setIsAIModalOpen(true);
-                      setIsToolsOpen(false);
-                    }}
-                    disabled={!isOnline}
-                    className={`w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors group ${
-                      isOnline ? 'text-emerald-400 hover:bg-emerald-900/20' : 'text-slate-600 cursor-not-allowed'
-                    }`}
-                  >
-                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
-                      isOnline ? 'bg-emerald-500/10 group-hover:bg-emerald-500/20' : 'bg-slate-800'
-                    }`}>
-                      <Sparkles className="w-4 h-4" />
-                    </div>
-                    <div className="flex flex-col items-start">
-                      <span>AI Generate</span>
-                      <span className="text-[10px] text-slate-500 font-normal">
-                        {isOnline ? 'Build process with AI' : 'Requires internet'}
-                      </span>
-                    </div>
-                  </button>
+                  {aiEnabled && (
+                    <>
+                      <button
+                        onClick={() => {
+                          if (!isOnline) return;
+                          setIsAIModalOpen(true);
+                          setIsToolsOpen(false);
+                        }}
+                        disabled={!isOnline}
+                        className={`w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors group ${
+                          isOnline ? 'text-emerald-400 hover:bg-emerald-900/20' : 'text-slate-600 cursor-not-allowed'
+                        }`}
+                      >
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
+                          isOnline ? 'bg-emerald-500/10 group-hover:bg-emerald-500/20' : 'bg-slate-800'
+                        }`}>
+                          <Sparkles className="w-4 h-4" />
+                        </div>
+                        <div className="flex flex-col items-start">
+                          <span>AI Generate</span>
+                          <span className="text-[10px] text-slate-500 font-normal">
+                            {isOnline ? 'Build process with AI' : 'Requires internet'}
+                          </span>
+                        </div>
+                      </button>
 
-                  <button
-                    onClick={() => {
-                      if (!isOnline) return;
-                      setIsOptimizeModalOpen(true);
-                      setIsToolsOpen(false);
-                    }}
-                    disabled={!isOnline}
-                    className={`w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors group ${
-                      isOnline ? 'text-amber-400 hover:bg-amber-900/20' : 'text-slate-600 cursor-not-allowed'
-                    }`}
-                  >
-                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
-                      isOnline ? 'bg-amber-500/10 group-hover:bg-amber-500/20' : 'bg-slate-800'
-                    }`}>
-                      <Zap className="w-4 h-4" />
-                    </div>
-                    <div className="flex flex-col items-start">
-                      <span>AI Optimize</span>
-                      <span className="text-[10px] text-slate-500 font-normal">
-                        {isOnline ? 'Improve efficiency' : 'Requires internet'}
-                      </span>
-                    </div>
-                  </button>
+                      <button
+                        onClick={() => {
+                          if (!isOnline) return;
+                          setIsOptimizeModalOpen(true);
+                          setIsToolsOpen(false);
+                        }}
+                        disabled={!isOnline}
+                        className={`w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors group ${
+                          isOnline ? 'text-amber-400 hover:bg-amber-900/20' : 'text-slate-600 cursor-not-allowed'
+                        }`}
+                      >
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
+                          isOnline ? 'bg-amber-500/10 group-hover:bg-amber-500/20' : 'bg-slate-800'
+                        }`}>
+                          <Zap className="w-4 h-4" />
+                        </div>
+                        <div className="flex flex-col items-start">
+                          <span>AI Optimize</span>
+                          <span className="text-[10px] text-slate-500 font-normal">
+                            {isOnline ? 'Improve efficiency' : 'Requires internet'}
+                          </span>
+                        </div>
+                      </button>
 
-                  <button
-                    onClick={() => {
-                      if (!isOnline) return;
-                      autoTagNodes();
-                      setIsToolsOpen(false);
-                    }}
-                    disabled={!isOnline}
-                    className={`w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors group ${
-                      isOnline ? 'text-indigo-400 hover:bg-indigo-900/20' : 'text-slate-600 cursor-not-allowed'
-                    }`}
-                  >
-                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
-                      isOnline ? 'bg-indigo-500/10 group-hover:bg-indigo-500/20' : 'bg-slate-800'
-                    }`}>
-                      <Tags className="w-4 h-4" />
-                    </div>
-                    <div className="flex flex-col items-start">
-                      <span>AI Auto-Tag</span>
-                      <span className="text-[10px] text-slate-500 font-normal">
-                        {isOnline ? 'Categorize steps' : 'Requires internet'}
-                      </span>
-                    </div>
-                  </button>
+                      <button
+                        onClick={() => {
+                          if (!isOnline) return;
+                          autoTagNodes();
+                          setIsToolsOpen(false);
+                        }}
+                        disabled={!isOnline}
+                        className={`w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors group ${
+                          isOnline ? 'text-indigo-400 hover:bg-indigo-900/20' : 'text-slate-600 cursor-not-allowed'
+                        }`}
+                      >
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
+                          isOnline ? 'bg-indigo-500/10 group-hover:bg-indigo-500/20' : 'bg-slate-800'
+                        }`}>
+                          <Tags className="w-4 h-4" />
+                        </div>
+                        <div className="flex flex-col items-start">
+                          <span>AI Auto-Tag</span>
+                          <span className="text-[10px] text-slate-500 font-normal">
+                            {isOnline ? 'Categorize steps' : 'Requires internet'}
+                          </span>
+                        </div>
+                      </button>
+                    </>
+                  )}
 
                   <button
                     onClick={() => {
@@ -822,21 +862,25 @@ export default function Toolbar({
                   </div>
                 )}
 
-                <div className="px-2 space-y-1">
-                  <button
-                    onClick={() => {
-                      onOpenMonitoring?.();
-                      setIsUserMenuOpen(false);
-                    }}
-                    className="w-full flex items-center gap-3 px-3 py-2 text-sm text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
-                  >
-                    <Activity className="w-4 h-4 text-indigo-400" />
-                    <div className="flex flex-col items-start">
-                      <span>Usage Monitoring</span>
-                      <span className="text-[10px] text-slate-500">Track AI costs & tokens</span>
-                    </div>
-                  </button>
+                {aiEnabled && (
+                  <div className="px-2 space-y-1">
+                    <button
+                      onClick={() => {
+                        onOpenMonitoring?.();
+                        setIsUserMenuOpen(false);
+                      }}
+                      className="w-full flex items-center gap-3 px-3 py-2 text-sm text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+                    >
+                      <Activity className="w-4 h-4 text-indigo-400" />
+                      <div className="flex flex-col items-start">
+                        <span>Usage Monitoring</span>
+                        <span className="text-[10px] text-slate-500">Track AI costs & tokens</span>
+                      </div>
+                    </button>
+                  </div>
+                )}
 
+                <div className="px-2 space-y-1 mt-1">
                   <button
                     onClick={() => {
                       if (!isOnline) return;
@@ -908,40 +952,6 @@ export default function Toolbar({
             {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           </button>
           
-          <div className="flex items-center bg-slate-800 rounded-md p-1 mr-2 ml-2">
-            <button
-              onClick={() => setExportFormat('json')}
-              className={`px-2 py-0.5 text-[10px] font-bold rounded transition-colors ${
-                exportFormat === 'json' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              JSON
-            </button>
-            <button
-              onClick={() => setExportFormat('xml')}
-              className={`px-2 py-0.5 text-[10px] font-bold rounded transition-colors ${
-                exportFormat === 'xml' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              XML
-            </button>
-          </div>
-          
-          <button
-            onClick={handleExport}
-            className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800 rounded-md transition-colors"
-            title={`Export Project as ${exportFormat.toUpperCase()}`}
-          >
-            <Download className="w-4 h-4" /> Export
-          </button>
-          
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800 rounded-md transition-colors"
-            title="Import Project (JSON or XML)"
-          >
-            <Upload className="w-4 h-4" /> Import
-          </button>
           <input
             type="file"
             ref={fileInputRef}

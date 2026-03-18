@@ -29,7 +29,9 @@ export default function Settings({ onClose }: SettingsProps) {
     addIssueManagementConfig,
     removeIssueManagementConfig,
     updateIssueManagementConfig,
-    isOnline
+    isOnline,
+    aiEnabled,
+    setAiEnabled
   } = useGraphStore();
 
   const [isLoggingIn, setIsLoggingIn] = useState(false);
@@ -234,6 +236,60 @@ export default function Settings({ onClose }: SettingsProps) {
                   />
                 </button>
               </div>
+
+              <div className="flex items-center justify-between p-4 bg-slate-800/50 border border-slate-700 rounded-xl">
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${aiEnabled ? 'bg-emerald-500/20' : 'bg-slate-700'}`}>
+                    <Sparkles className={`w-5 h-5 ${aiEnabled ? 'text-emerald-400' : 'text-slate-400'}`} />
+                  </div>
+                  <div>
+                    <div className="text-sm font-bold text-white">AI Features</div>
+                    <div className="text-xs text-slate-400">Enable AI-powered generation and optimization</div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setAiEnabled(!aiEnabled)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-slate-900 ${
+                    aiEnabled ? 'bg-emerald-500' : 'bg-slate-600'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      aiEnabled ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between p-4 bg-slate-800/50 border border-slate-700 rounded-xl">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-indigo-500/20">
+                    <HardDrive className="w-5 h-5 text-indigo-400" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-bold text-white">Export Format</div>
+                    <div className="text-xs text-slate-400">Default format for project exports</div>
+                  </div>
+                </div>
+                <div className="flex items-center bg-slate-900 rounded-lg p-1 border border-slate-700">
+                  <button
+                    onClick={() => useGraphStore().setExportFormat('json')}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors ${
+                      useGraphStore().exportFormat === 'json' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                    }`}
+                  >
+                    JSON
+                  </button>
+                  <button
+                    onClick={() => useGraphStore().setExportFormat('xml')}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors ${
+                      useGraphStore().exportFormat === 'xml' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                    }`}
+                  >
+                    XML
+                  </button>
+                </div>
+              </div>
             </div>
 
             {!user && !isLoggingIn && isOnline && (
@@ -380,72 +436,76 @@ export default function Settings({ onClose }: SettingsProps) {
           </section>
 
           {/* AI Model Selection */}
-          <section>
-            <h3 className="text-sm font-bold text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
-              <Sparkles className="w-4 h-4" /> AI Model Selection
-            </h3>
-            <div className="space-y-3">
-              {models.map((model) => (
-                <button
-                  key={model.id}
-                  onClick={() => setSelectedModel(model.id)}
-                  className={`w-full flex items-center gap-4 p-4 rounded-xl border-2 transition-all text-left ${
-                    selectedModel === model.id 
-                      ? 'border-indigo-500 bg-indigo-500/10 text-white' 
-                      : 'border-slate-800 bg-slate-800/50 text-slate-400 hover:border-slate-700'
-                  }`}
-                >
-                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                    selectedModel === model.id ? 'bg-indigo-500/20 text-indigo-400' : 'bg-slate-800 text-slate-500'
-                  }`}>
-                    <model.icon className="w-5 h-5" />
-                  </div>
-                  <div className="flex-1">
-                    <div className="font-bold text-sm">{model.name}</div>
-                    <div className="text-xs opacity-60">{model.description}</div>
-                  </div>
-                  {selectedModel === model.id && (
-                    <div className="w-2 h-2 bg-indigo-500 rounded-full shadow-[0_0_8px_rgba(99,102,241,0.8)]" />
-                  )}
-                </button>
-              ))}
-            </div>
-          </section>
+          {aiEnabled && (
+            <section>
+              <h3 className="text-sm font-bold text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+                <Sparkles className="w-4 h-4" /> AI Model Selection
+              </h3>
+              <div className="space-y-3">
+                {models.map((model) => (
+                  <button
+                    key={model.id}
+                    onClick={() => setSelectedModel(model.id)}
+                    className={`w-full flex items-center gap-4 p-4 rounded-xl border-2 transition-all text-left ${
+                      selectedModel === model.id 
+                        ? 'border-indigo-500 bg-indigo-500/10 text-white' 
+                        : 'border-slate-800 bg-slate-800/50 text-slate-400 hover:border-slate-700'
+                    }`}
+                  >
+                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                      selectedModel === model.id ? 'bg-indigo-500/20 text-indigo-400' : 'bg-slate-800 text-slate-500'
+                    }`}>
+                      <model.icon className="w-5 h-5" />
+                    </div>
+                    <div className="flex-1">
+                      <div className="font-bold text-sm">{model.name}</div>
+                      <div className="text-xs opacity-60">{model.description}</div>
+                    </div>
+                    {selectedModel === model.id && (
+                      <div className="w-2 h-2 bg-indigo-500 rounded-full shadow-[0_0_8px_rgba(99,102,241,0.8)]" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
 
           {/* AI Models */}
-          <section>
-            <h3 className="text-sm font-bold text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
-              <Key className="w-4 h-4" /> External AI Models
-            </h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-400 mb-2 uppercase">OpenAI API Key (GPT-4o)</label>
-                <input
-                  type="password"
-                  value={openaiKey}
-                  onChange={(e) => setOpenaiKey(e.target.value)}
-                  placeholder="sk-..."
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
-                />
+          {aiEnabled && (
+            <section>
+              <h3 className="text-sm font-bold text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+                <Key className="w-4 h-4" /> External AI Models
+              </h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 mb-2 uppercase">OpenAI API Key (GPT-4o)</label>
+                  <input
+                    type="password"
+                    value={openaiKey}
+                    onChange={(e) => setOpenaiKey(e.target.value)}
+                    placeholder="sk-..."
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 mb-2 uppercase">Anthropic API Key (Claude 3.5)</label>
+                  <input
+                    type="password"
+                    value={anthropicKey}
+                    onChange={(e) => setAnthropicKey(e.target.value)}
+                    placeholder="x-..."
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                  />
+                </div>
+                <button
+                  onClick={handleSaveKeys}
+                  className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-bold shadow-lg shadow-indigo-900/20 transition-all"
+                >
+                  Save API Keys
+                </button>
               </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-400 mb-2 uppercase">Anthropic API Key (Claude 3.5)</label>
-                <input
-                  type="password"
-                  value={anthropicKey}
-                  onChange={(e) => setAnthropicKey(e.target.value)}
-                  placeholder="x-..."
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
-                />
-              </div>
-              <button
-                onClick={handleSaveKeys}
-                className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-bold shadow-lg shadow-indigo-900/20 transition-all"
-              >
-                Save API Keys
-              </button>
-            </div>
-          </section>
+            </section>
+          )}
 
           {/* Collaboration Info */}
           {cloudMode && (

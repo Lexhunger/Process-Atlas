@@ -12,6 +12,41 @@ import { collection, doc, setDoc, onSnapshot, writeBatch } from 'firebase/firest
 import { Node, Edge, Connection, addEdge, applyNodeChanges, applyEdgeChanges, NodeChange, EdgeChange, MarkerType } from '@xyflow/react';
 import dagre from 'dagre';
 
+// Helper function to calculate edge styling based on relationship type
+const getEdgeStyleProps = (relationshipType: string | undefined, hasArrow: boolean | undefined, color: string | undefined) => {
+  let markerType = MarkerType.ArrowClosed;
+  let strokeDasharray = undefined;
+  let markerStart = undefined;
+  let finalHasArrow = hasArrow !== false;
+
+  if (relationshipType === 'extends') {
+    markerType = MarkerType.Arrow;
+  } else if (relationshipType === 'implements') {
+    markerType = MarkerType.Arrow;
+    strokeDasharray = '5,5';
+  } else if (relationshipType === 'dependency') {
+    markerType = MarkerType.Arrow;
+    strokeDasharray = '5,5';
+  } else if (relationshipType === 'association') {
+    finalHasArrow = false;
+  } else if (relationshipType === 'aggregation') {
+    markerType = MarkerType.Arrow; 
+  } else if (relationshipType === 'composition') {
+    markerType = MarkerType.ArrowClosed;
+  } else if (relationshipType === 'bidirectional') {
+    markerType = MarkerType.ArrowClosed;
+    markerStart = { type: MarkerType.ArrowClosed, color: color || '#94a3b8' };
+    finalHasArrow = true;
+  }
+
+  return {
+    markerType,
+    strokeDasharray,
+    markerStart,
+    finalHasArrow
+  };
+};
+
 const debouncedSaveNode = debounce((node: AppNode, projectId?: string, cloudMode = false) => {
   storageService.saveNode(node, projectId, cloudMode);
 }, 500);
@@ -114,7 +149,7 @@ interface GraphStore {
   updateNodePosition: (id: string, position: { x: number; y: number }) => void;
   updateEdgeLabel: (id: string, label: string) => Promise<void>;
   updateEdgeType: (id: string, type: string) => Promise<void>;
-  updateEdgeStyle: (id: string, style: { color?: string; animated?: boolean; hasArrow?: boolean }) => Promise<void>;
+  updateEdgeStyle: (id: string, style: { color?: string; animated?: boolean; hasArrow?: boolean; relationshipType?: string }) => Promise<void>;
   deleteNode: (id: string) => Promise<void>;
   deleteEdge: (id: string) => Promise<void>;
   
@@ -133,6 +168,9 @@ interface GraphStore {
   setExportFormat: (format: 'json' | 'xml') => void;
   exportProject: (format?: 'json' | 'xml') => Promise<string | null>;
   importProject: (data: string) => Promise<void>;
+  
+  aiEnabled: boolean;
+  setAiEnabled: (enabled: boolean) => void;
   
   tidyUp: () => void;
   generateAIProcess: (prompt: string) => Promise<void>;
@@ -200,6 +238,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
   devMode: localStorage.getItem('atlas_dev_mode') === 'true',
   autoSync: localStorage.getItem('atlas_auto_sync') !== 'false', // Default to true
   autoResize: localStorage.getItem('atlas_auto_resize') !== 'false', // Default to true
+  aiEnabled: localStorage.getItem('atlas_ai_enabled') !== 'false', // Default to true
   selectedModel: localStorage.getItem('atlas_selected_model') || 'gemini-3-flash-preview',
   apiKeys: JSON.parse(localStorage.getItem('atlas_api_keys') || '{}'),
   user: null,
@@ -209,6 +248,10 @@ export const useGraphStore = create<GraphStore>((set, get) => {
   githubToken: localStorage.getItem('atlas_github_token'),
   exportFormat: 'json',
   setExportFormat: (format: 'json' | 'xml') => set({ exportFormat: format }),
+  setAiEnabled: (enabled: boolean) => {
+    set({ aiEnabled: enabled });
+    localStorage.setItem('atlas_ai_enabled', String(enabled));
+  },
 
   dbReads: parseInt(localStorage.getItem('atlas_db_reads') || '0', 10),
   dbWrites: parseInt(localStorage.getItem('atlas_db_writes') || '0', 10),
@@ -555,19 +598,28 @@ export const useGraphStore = create<GraphStore>((set, get) => {
           };
         });
       
-      const edges: Edge[] = allAppEdges.map(e => ({
-        id: e.id,
-        source: e.source,
-        target: e.target,
-        sourceHandle: e.sourceHandle,
-        targetHandle: e.targetHandle,
-        label: e.label,
-        type: e.type,
-        animated: e.animated,
-        style: e.color ? { stroke: e.color, strokeWidth: 2 } : { strokeWidth: 2 },
-        markerEnd: e.hasArrow !== false ? { type: MarkerType.ArrowClosed, color: e.color || '#94a3b8' } : undefined,
-        data: { relationshipType: e.relationshipType, color: e.color, hasArrow: e.hasArrow !== false }
-      }));
+      const edges: Edge[] = allAppEdges.map(e => {
+        const { markerType, strokeDasharray, markerStart, finalHasArrow } = getEdgeStyleProps(e.relationshipType, e.hasArrow, e.color);
+        
+        return {
+          id: e.id,
+          source: e.source,
+          target: e.target,
+          sourceHandle: e.sourceHandle,
+          targetHandle: e.targetHandle,
+          label: e.label,
+          type: e.type,
+          animated: e.animated,
+          style: { 
+            stroke: e.color || undefined, 
+            strokeWidth: 2,
+            strokeDasharray
+          },
+          markerEnd: finalHasArrow ? { type: markerType, color: e.color || '#94a3b8' } : undefined,
+          markerStart,
+          data: { relationshipType: e.relationshipType, color: e.color, hasArrow: finalHasArrow }
+        };
+      });
       
       set({ nodes, edges });
       
@@ -653,19 +705,28 @@ export const useGraphStore = create<GraphStore>((set, get) => {
         // extent removed
       }));
     
-    const edges: Edge[] = appEdges.map(e => ({
-      id: e.id,
-      source: e.source,
-      target: e.target,
-      sourceHandle: e.sourceHandle,
-      targetHandle: e.targetHandle,
-      label: e.label,
-      type: e.type,
-      animated: e.animated,
-      style: e.color ? { stroke: e.color, strokeWidth: 2 } : { strokeWidth: 2 },
-      markerEnd: e.hasArrow !== false ? { type: MarkerType.ArrowClosed, color: e.color || '#94a3b8' } : undefined,
-      data: { relationshipType: e.relationshipType, color: e.color, hasArrow: e.hasArrow !== false }
-    }));
+    const edges: Edge[] = appEdges.map(e => {
+      const { markerType, strokeDasharray, markerStart, finalHasArrow } = getEdgeStyleProps(e.relationshipType, e.hasArrow, e.color);
+      
+      return {
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        sourceHandle: e.sourceHandle,
+        targetHandle: e.targetHandle,
+        label: e.label,
+        type: e.type,
+        animated: e.animated,
+        style: { 
+          stroke: e.color || undefined, 
+          strokeWidth: 2,
+          strokeDasharray
+        },
+        markerEnd: finalHasArrow ? { type: markerType, color: e.color || '#94a3b8' } : undefined,
+        markerStart,
+        data: { relationshipType: e.relationshipType, color: e.color, hasArrow: finalHasArrow }
+      };
+    });
     
     set({ nodes, edges, activeGraphId: graphId });
   },
@@ -1158,7 +1219,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     await storageService.saveEdge(appEdge, activeProjectId || undefined, cloudMode);
   },
 
-  updateEdgeStyle: async (id: string, style: { color?: string; animated?: boolean; hasArrow?: boolean }) => {
+  updateEdgeStyle: async (id: string, style: { color?: string; animated?: boolean; hasArrow?: boolean; relationshipType?: string }) => {
     const { edges, activeGraphId, activeProjectId, cloudMode } = get();
     if (!activeGraphId) return;
     
@@ -1170,14 +1231,39 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     const currentData = edge.data || {};
     const newColor = style.color !== undefined ? style.color : currentData.color as string | undefined;
     const newAnimated = style.animated !== undefined ? style.animated : edge.animated;
-    const newHasArrow = style.hasArrow !== undefined ? style.hasArrow : currentData.hasArrow as boolean | undefined;
+    let newHasArrow = style.hasArrow !== undefined ? style.hasArrow : currentData.hasArrow as boolean | undefined;
+    const newRelationshipType = style.relationshipType !== undefined ? style.relationshipType : currentData.relationshipType as string | undefined;
     
+    // If the user just changed the relationship type, we might want to override the arrow setting
+    if (style.relationshipType !== undefined) {
+      if (newRelationshipType === 'association') {
+        newHasArrow = false;
+      } else if (newRelationshipType === 'bidirectional') {
+        newHasArrow = true;
+      }
+    }
+    
+    const { markerType, strokeDasharray, markerStart, finalHasArrow } = getEdgeStyleProps(newRelationshipType, newHasArrow, newColor);
+    
+    let newLabel = edge.label;
+    if (style.relationshipType !== undefined && style.relationshipType !== currentData.relationshipType) {
+      if (!edge.label || edge.label === currentData.relationshipType) {
+        newLabel = style.relationshipType;
+      }
+    }
+
     const updatedEdge: Edge = {
       ...edge,
+      label: newLabel,
       animated: newAnimated,
-      style: newColor ? { stroke: newColor, strokeWidth: 2 } : { strokeWidth: 2 },
-      markerEnd: newHasArrow ? { type: MarkerType.ArrowClosed, color: newColor || '#94a3b8' } : undefined,
-      data: { ...currentData, color: newColor, hasArrow: newHasArrow }
+      style: { 
+        stroke: newColor || undefined, 
+        strokeWidth: 2,
+        strokeDasharray
+      },
+      markerEnd: finalHasArrow ? { type: markerType, color: newColor || '#94a3b8' } : undefined,
+      markerStart: markerStart,
+      data: { ...currentData, color: newColor, hasArrow: finalHasArrow, relationshipType: newRelationshipType }
     };
     
     set({
@@ -1191,8 +1277,8 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       target: updatedEdge.target,
       sourceHandle: updatedEdge.sourceHandle || undefined,
       targetHandle: updatedEdge.targetHandle || undefined,
-      relationshipType: currentData.relationshipType as string || 'flow',
-      label: updatedEdge.label as string,
+      relationshipType: newRelationshipType || 'flow',
+      label: newLabel as string,
       type: updatedEdge.type,
       color: newColor,
       animated: newAnimated,
@@ -2005,19 +2091,28 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     const unsubEdges = onSnapshot(edgesRef, (snapshot) => {
       get().incrementDbReads(snapshot.docs.length || 1);
       const remoteEdges = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as AppEdge));
-      const mergedEdges = remoteEdges.map(re => ({
-        id: re.id,
-        source: re.source,
-        target: re.target,
-        sourceHandle: re.sourceHandle,
-        targetHandle: re.targetHandle,
-        label: re.label,
-        type: re.type,
-        animated: re.animated,
-        style: re.color ? { stroke: re.color, strokeWidth: 2 } : { strokeWidth: 2 },
-        markerEnd: re.hasArrow !== false ? { type: MarkerType.ArrowClosed, color: re.color || '#94a3b8' } : undefined,
-        data: { relationshipType: re.relationshipType, color: re.color, hasArrow: re.hasArrow !== false }
-      } as Edge));
+      const mergedEdges = remoteEdges.map(re => {
+        const { markerType, strokeDasharray, markerStart, finalHasArrow } = getEdgeStyleProps(re.relationshipType, re.hasArrow, re.color);
+        
+        return {
+          id: re.id,
+          source: re.source,
+          target: re.target,
+          sourceHandle: re.sourceHandle,
+          targetHandle: re.targetHandle,
+          label: re.label,
+          type: re.type,
+          animated: re.animated,
+          style: { 
+            stroke: re.color || undefined, 
+            strokeWidth: 2,
+            strokeDasharray
+          },
+          markerEnd: finalHasArrow ? { type: markerType, color: re.color || '#94a3b8' } : undefined,
+          markerStart,
+          data: { relationshipType: re.relationshipType, color: re.color, hasArrow: finalHasArrow }
+        } as Edge;
+      });
       
       set({ edges: mergedEdges });
     });
