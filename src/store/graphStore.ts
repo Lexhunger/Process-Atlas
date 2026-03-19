@@ -77,6 +77,14 @@ interface GraphStore {
   isSimulating: boolean;
   isPresentationMode: boolean;
   
+  impactAnalysisMode: boolean;
+  impactSelectedNode: string | null;
+  hiddenLayers: string[];
+  
+  setImpactAnalysisMode: (active: boolean) => void;
+  setImpactSelectedNode: (nodeId: string | null) => void;
+  toggleLayerVisibility: (layer: string) => void;
+  
   // Settings & Cloud
   nodeTypes: string[];
   issueManagementConfigs: IssueManagementConfig[];
@@ -142,7 +150,7 @@ interface GraphStore {
   onEdgesChange: (changes: EdgeChange[]) => void;
   onConnect: (connection: Connection) => void;
   
-  addNode: (position: { x: number; y: number }, type?: string, templateId?: string, shape?: string, parentId?: string) => Promise<void>;
+  addNode: (position: { x: number; y: number }, type?: string, templateId?: string, shape?: string, parentId?: string, customNodeType?: string) => Promise<void>;
   updateNodeData: (id: string, data: any, size?: { width: number, height: number }) => Promise<void>;
   updateNodeParent: (id: string, parentId: string | undefined) => Promise<void>;
   updateNodeZIndex: (id: string, zIndex: number) => void;
@@ -175,6 +183,8 @@ interface GraphStore {
   tidyUp: () => void;
   generateAIProcess: (prompt: string) => Promise<void>;
   analyzeGitHubRepo: (repoUrl: string, mode?: 'new' | 'current') => Promise<void>;
+  syncAgileBoard: (boardUrl: string, options: { epics: boolean, stories: boolean, bugs: boolean }) => Promise<void>;
+  updateRepositoryNodeData: (nodeId: string) => Promise<void>;
   autoTagNodes: () => Promise<void>;
   
   // Simulation
@@ -230,6 +240,21 @@ export const useGraphStore = create<GraphStore>((set, get) => {
   simulationActiveNodeId: null as string | null,
   isSimulating: false,
   isPresentationMode: false,
+  
+  impactAnalysisMode: false,
+  impactSelectedNode: null as string | null,
+  hiddenLayers: [] as string[],
+  
+  setImpactAnalysisMode: (active: boolean) => set({ impactAnalysisMode: active, impactSelectedNode: active ? get().selectedNodeId : null }),
+  setImpactSelectedNode: (nodeId: string | null) => set({ impactSelectedNode: nodeId }),
+  toggleLayerVisibility: (layer: string) => {
+    const { hiddenLayers } = get();
+    if (hiddenLayers.includes(layer)) {
+      set({ hiddenLayers: hiddenLayers.filter(l => l !== layer) });
+    } else {
+      set({ hiddenLayers: [...hiddenLayers, layer] });
+    }
+  },
   
   nodeTypes: ['Process', 'Action', 'Decision', 'Data', 'System', 'User', 'External'],
   issueManagementConfigs: [],
@@ -962,7 +987,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
   },
   
   onEdgesChange: (changes: EdgeChange[]) => {
-    const { edges, activeGraphId, activeProjectId, cloudMode } = get();
+    const { edges, nodes, activeGraphId, activeProjectId, cloudMode, updateNodeData } = get();
     const newEdges = applyEdgeChanges(changes, edges);
     set({ edges: newEdges });
     
@@ -970,16 +995,36 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     
     changes.forEach(async (change) => {
       if (change.type === 'remove') {
+        const removedEdge = edges.find(e => e.id === change.id);
+        if (removedEdge) {
+          const targetNode = nodes.find(n => n.id === removedEdge.target);
+          if (targetNode && targetNode.data.nodeType === 'reference' && targetNode.data.referenceTarget === removedEdge.source) {
+            updateNodeData(targetNode.id, { referenceTarget: '' });
+          }
+        }
         await storageService.deleteEdge(change.id, activeGraphId, activeProjectId || undefined, cloudMode);
       }
     });
   },
   
   onConnect: async (connection: Connection) => {
-    const { activeGraphId, activeProjectId, edges, cloudMode } = get();
+    const { activeGraphId, activeProjectId, edges, nodes, cloudMode, updateNodeData, deleteEdge } = get();
     if (!activeGraphId || !connection.source || !connection.target) return;
     
     get().takeSnapshot();
+
+    // Check if target is a reference node
+    const targetNode = nodes.find(n => n.id === connection.target);
+    if (targetNode && targetNode.data.nodeType === 'reference') {
+      // Update reference target
+      updateNodeData(connection.target, { referenceTarget: connection.source });
+      
+      // Remove existing incoming edges to this reference node
+      const existingEdges = edges.filter(edge => edge.target === connection.target);
+      for (const edge of existingEdges) {
+        await deleteEdge(edge.id);
+      }
+    }
     
     const newEdge: Edge = {
       id: uuidv4(),
@@ -994,7 +1039,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       data: { relationshipType: 'flow', hasArrow: true }
     };
     
-    set({ edges: addEdge(newEdge, edges) });
+    set({ edges: addEdge(newEdge, get().edges) });
     
     const appEdge: AppEdge = {
       id: newEdge.id,
@@ -1011,16 +1056,16 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     await storageService.saveEdge(appEdge, activeProjectId || undefined, cloudMode);
   },
   
-  addNode: async (position: { x: number; y: number }, type: string = 'customNode', templateId?: string, shape?: string, parentId?: string) => {
+  addNode: async (position: { x: number; y: number }, type: string = 'customNode', templateId?: string, shape?: string, parentId?: string, customNodeType?: string) => {
     const { activeGraphId, activeProjectId, cloudMode, templates } = get();
     if (!activeGraphId) return;
     
     get().takeSnapshot();
     
     let initialData: any = {
-      title: type === 'groupNode' ? 'New Group' : (type === 'inputNode' ? 'Input' : (type === 'outputNode' ? 'Output' : (type === 'none' ? '' : 'New Node'))),
+      title: type === 'groupNode' ? 'New Group' : (type === 'inputNode' ? 'Input' : (type === 'outputNode' ? 'Output' : (type === 'referenceNode' ? 'Reference' : (type === 'none' ? '' : 'New Node')))),
       description: '',
-      nodeType: type === 'groupNode' ? 'group' : (type === 'inputNode' ? 'input' : (type === 'outputNode' ? 'output' : (type === 'none' ? '' : 'default'))),
+      nodeType: customNodeType || (type === 'groupNode' ? 'group' : (type === 'inputNode' ? 'input' : (type === 'outputNode' ? 'output' : (type === 'referenceNode' ? 'reference' : (type === 'none' ? '' : 'default'))))),
       metadata: {},
       links: [],
       codeSnippets: [],
@@ -1893,6 +1938,169 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     } catch (error) {
       console.error('Failed to analyze GitHub repo:', error);
       throw error; // Re-throw to be caught by the UI
+    }
+  },
+
+  syncAgileBoard: async (boardUrl: string, options: { epics: boolean, stories: boolean, bugs: boolean }) => {
+    const { activeGraphId, activeProjectId, cloudMode, githubToken } = get();
+    if (!activeGraphId) return;
+
+    const match = boardUrl.match(/github\.com\/([^/]+)\/([^/]+)/);
+    if (!match) {
+      console.error("Only GitHub repository URLs are supported for Agile Sync currently.");
+      return;
+    }
+    const [, owner, repo] = match;
+
+    const headers: Record<string, string> = {
+      'Accept': 'application/vnd.github.v3+json'
+    };
+    if (githubToken) {
+      headers['Authorization'] = `token ${githubToken}`;
+    }
+
+    try {
+      const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/issues?state=open&per_page=100`, { headers });
+      if (!response.ok) {
+        throw new Error(`GitHub API error: ${response.statusText}`);
+      }
+      const issues = await response.json();
+
+      const newNodes: Node[] = [];
+      const appNodes: AppNode[] = [];
+      let xOffset = 100;
+      let yOffset = 100;
+
+      for (const issue of issues) {
+        if (issue.pull_request) continue; // Skip PRs
+
+        const labels = issue.labels.map((l: any) => l.name.toLowerCase());
+        
+        let isEpic = labels.some((l: string) => l.includes('epic'));
+        let isBug = labels.some((l: string) => l.includes('bug'));
+        let isStory = labels.some((l: string) => l.includes('story') || l.includes('enhancement') || l.includes('feature'));
+
+        // If no specific label, default to story if stories are requested
+        if (!isEpic && !isBug && !isStory) {
+          isStory = true;
+        }
+
+        if ((isEpic && !options.epics) || (isBug && !options.bugs) || (isStory && !options.stories)) {
+          continue;
+        }
+
+        const shape = isBug ? 'bug' : isStory ? 'story' : 'rectangle';
+        const nodeType = isBug ? 'bug' : isStory ? 'story' : 'epic';
+
+        const newNodeId = uuidv4();
+        const newNode: Node = {
+          id: newNodeId,
+          type: 'customNode',
+          position: { x: xOffset, y: yOffset },
+          data: {
+            title: issue.title,
+            description: issue.body ? issue.body.substring(0, 200) + (issue.body.length > 200 ? '...' : '') : '',
+            nodeType: nodeType,
+            shape: shape,
+            status: issue.state,
+            assignee: issue.assignee ? issue.assignee.login : 'Unassigned',
+            priority: labels.find((l: string) => l.includes('priority')) || 'Normal',
+            tags: ['agile-sync', ...issue.labels.map((l: any) => l.name)],
+            links: [{ url: issue.html_url, label: 'GitHub Issue' }],
+            codeSnippets: [],
+            metadata: {},
+            isExpanded: false
+          }
+        };
+
+        newNodes.push(newNode);
+        
+        appNodes.push({
+          id: newNodeId,
+          graphId: activeGraphId,
+          position: newNode.position,
+          type: newNode.type || 'customNode',
+          data: newNode.data as any,
+        });
+
+        xOffset += 300;
+        if (xOffset > 1000) {
+          xOffset = 100;
+          yOffset += 200;
+        }
+      }
+
+      set({ nodes: [...get().nodes, ...newNodes] });
+
+      for (const appNode of appNodes) {
+        await storageService.saveNode(appNode, activeProjectId || undefined, cloudMode);
+      }
+    } catch (error) {
+      console.error("Failed to sync agile board:", error);
+      throw error;
+    }
+  },
+
+  updateRepositoryNodeData: async (nodeId: string) => {
+    const { nodes, githubToken, updateNodeData } = get();
+    const node = nodes.find(n => n.id === nodeId) as AppNode | undefined;
+    if (!node || node.data.shape !== 'repository' || !node.data.links || node.data.links.length === 0) return;
+
+    const repoUrl = node.data.links[0].url;
+    const match = repoUrl.match(/github\.com\/([^/]+)\/([^/]+)/);
+    if (!match) return;
+    const [, owner, repo] = match;
+
+    const headers: Record<string, string> = {
+      'Accept': 'application/vnd.github.v3+json'
+    };
+    if (githubToken) {
+      headers['Authorization'] = `token ${githubToken}`;
+    }
+
+    try {
+      // Fetch open PRs
+      const prsResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls?state=open`, { headers });
+      let openPrCount = 0;
+      if (prsResponse.ok) {
+        const prs = await prsResponse.json();
+        openPrCount = Array.isArray(prs) ? prs.length : 0;
+      }
+
+      // Fetch last commit
+      const commitsResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/commits?per_page=1`, { headers });
+      let lastCommitInfo = undefined;
+      if (commitsResponse.ok) {
+        const commits = await commitsResponse.json();
+        lastCommitInfo = Array.isArray(commits) && commits.length > 0 ? commits[0].commit.message : undefined;
+      }
+
+      // Fetch deployments
+      const deploymentsResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/deployments?per_page=1`, { headers });
+      let deploymentStatus = undefined;
+      if (deploymentsResponse.ok) {
+        const deployments = await deploymentsResponse.json();
+        if (Array.isArray(deployments) && deployments.length > 0) {
+          const statusesResponse = await fetch(deployments[0].statuses_url, { headers });
+          if (statusesResponse.ok) {
+            const statuses = await statusesResponse.json();
+            if (Array.isArray(statuses) && statuses.length > 0) {
+              const state = statuses[0].state;
+              if (state === 'success') deploymentStatus = 'success';
+              else if (state === 'error' || state === 'failure') deploymentStatus = 'failed';
+              else deploymentStatus = 'pending';
+            }
+          }
+        }
+      }
+
+      await updateNodeData(nodeId, {
+        openPrCount,
+        lastCommitInfo,
+        deploymentStatus
+      });
+    } catch (error) {
+      console.error('Failed to fetch repository data:', error);
     }
   },
 

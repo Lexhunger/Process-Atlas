@@ -48,6 +48,7 @@ export default function Toolbar({
     generateManual,
     autoTagNodes,
     analyzeGitHubRepo,
+    syncAgileBoard,
     activeGraphId,
     githubToken,
     setGithubToken,
@@ -61,7 +62,9 @@ export default function Toolbar({
     isOnline,
     exportFormat,
     setExportFormat,
-    aiEnabled
+    aiEnabled,
+    impactAnalysisMode,
+    setImpactAnalysisMode
   } = useGraphStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const toolsRef = useRef<HTMLDivElement>(null);
@@ -69,6 +72,7 @@ export default function Toolbar({
   const [isAIModalOpen, setIsAIModalOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isGitHubModalOpen, setIsGitHubModalOpen] = useState(false);
+  const [isAgileSyncModalOpen, setIsAgileSyncModalOpen] = useState(false);
   const [isDashboardOpen, setIsDashboardOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isToolsOpen, setIsToolsOpen] = useState(false);
@@ -82,6 +86,11 @@ export default function Toolbar({
   const [optimizePrompt, setOptimizePrompt] = useState('');
   const [isSavingToCloud, setIsSavingToCloud] = useState(false);
   const [hasSavedToCloud, setHasSavedToCloud] = useState(false);
+  
+  const [agileBoardUrl, setAgileBoardUrl] = useState('');
+  const [syncEpics, setSyncEpics] = useState(true);
+  const [syncStories, setSyncStories] = useState(true);
+  const [syncBugs, setSyncBugs] = useState(false);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -602,6 +611,22 @@ export default function Toolbar({
                     </div>
                   </button>
 
+                  <button
+                    onClick={() => {
+                      setIsAgileSyncModalOpen(true);
+                      setIsToolsOpen(false);
+                    }}
+                    className="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium text-slate-300 hover:bg-slate-800 rounded-lg transition-colors group"
+                  >
+                    <div className="w-8 h-8 bg-slate-800 rounded-lg flex items-center justify-center group-hover:bg-slate-700 transition-colors">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-400"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><path d="M7 7h10"/><path d="M7 12h10"/><path d="M7 17h10"/></svg>
+                    </div>
+                    <div className="flex flex-col items-start">
+                      <span>Agile Board Sync</span>
+                      <span className="text-[10px] text-slate-500 font-normal">Pull epics and stories</span>
+                    </div>
+                  </button>
+
                   <div className="h-px bg-slate-800 my-1 mx-2"></div>
                   <div className="px-3 py-1 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Simulation</div>
 
@@ -716,6 +741,21 @@ export default function Toolbar({
               </div>
             )}
           </div>
+
+          <div className="w-px h-6 bg-slate-700 mx-2"></div>
+
+          <button
+            onClick={() => setImpactAnalysisMode(!impactAnalysisMode)}
+            className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+              impactAnalysisMode 
+                ? 'bg-red-500/20 text-red-400 border border-red-500/30' 
+                : 'text-slate-300 hover:text-white hover:bg-slate-800'
+            }`}
+            title="Toggle Impact Analysis Mode"
+          >
+            <Activity className="w-4 h-4" />
+            Impact Analysis
+          </button>
 
           {isSimulating && (
             <>
@@ -1230,6 +1270,109 @@ export default function Toolbar({
                       <Github className="w-4 h-4" /> Import & Map
                     </>
                   )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {isAgileSyncModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-blue-500/10 rounded-xl flex items-center justify-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-400"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><path d="M7 7h10"/><path d="M7 12h10"/><path d="M7 17h10"/></svg>
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold text-white">Agile Board Sync</h2>
+                    <p className="text-xs text-slate-400">Pull epics and stories into your map</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setIsAgileSyncModalOpen(false)}
+                  className="p-2 text-slate-500 hover:text-white hover:bg-slate-800 rounded-xl transition-all"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 mb-2 uppercase">Board URL or Project Key</label>
+                  <input
+                    type="text"
+                    value={agileBoardUrl}
+                    onChange={(e) => setAgileBoardUrl(e.target.value)}
+                    placeholder="e.g., https://github.com/owner/repo"
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                    autoFocus
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 mb-2 uppercase">Sync Options</label>
+                  <div className="space-y-2">
+                    <label className="flex items-center gap-2 text-sm text-slate-300">
+                      <input 
+                        type="checkbox" 
+                        checked={syncEpics}
+                        onChange={(e) => setSyncEpics(e.target.checked)}
+                        className="rounded border-slate-700 bg-slate-800 text-blue-500 focus:ring-blue-500" 
+                      />
+                      Include Epics
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-slate-300">
+                      <input 
+                        type="checkbox" 
+                        checked={syncStories}
+                        onChange={(e) => setSyncStories(e.target.checked)}
+                        className="rounded border-slate-700 bg-slate-800 text-blue-500 focus:ring-blue-500" 
+                      />
+                      Include User Stories
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-slate-300">
+                      <input 
+                        type="checkbox" 
+                        checked={syncBugs}
+                        onChange={(e) => setSyncBugs(e.target.checked)}
+                        className="rounded border-slate-700 bg-slate-800 text-blue-500 focus:ring-blue-500" 
+                      />
+                      Include Bugs
+                    </label>
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  <button
+                    className="w-full flex items-center justify-center gap-2 bg-slate-800 border border-slate-700 hover:bg-slate-700 text-white px-4 py-2.5 rounded-xl text-xs font-bold transition-all"
+                  >
+                    <SettingsIcon className="w-4 h-4" />
+                    Configure Integration Settings
+                  </button>
+                </div>
+
+                <p className="text-[10px] text-slate-500 leading-relaxed italic">
+                  Note: Currently supports GitHub repository URLs to sync open issues as nodes. Ensure your GitHub token is set in settings.
+                </p>
+              </div>
+              <div className="mt-6 flex items-center justify-end gap-3">
+                <button
+                  onClick={() => setIsAgileSyncModalOpen(false)}
+                  className="px-4 py-2 text-sm font-medium text-slate-300 hover:text-white transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    syncAgileBoard(agileBoardUrl, { epics: syncEpics, stories: syncStories, bugs: syncBugs });
+                    setIsAgileSyncModalOpen(false);
+                  }}
+                  disabled={!agileBoardUrl.trim() || (!syncEpics && !syncStories && !syncBugs)}
+                  className="px-6 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-xl text-sm font-bold shadow-lg shadow-blue-900/20 transition-all flex items-center gap-2"
+                >
+                  <RefreshCw className="w-4 h-4" /> Sync Now
                 </button>
               </div>
             </div>

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useGraphStore } from '../store/graphStore';
-import { X, Plus, Trash2, Link as LinkIcon, Layers, Edit2, Check, ExternalLink, Copy, MoveRight, Image as ImageIcon, Eye, Type, Palette, ChevronDown, Settings as SettingsIcon, ChevronRight, ChevronLeft } from 'lucide-react';
+import { X, Plus, Trash2, Link as LinkIcon, Layers, Edit2, Check, ExternalLink, Copy, MoveRight, Image as ImageIcon, Eye, Type, Palette, ChevronDown, Settings as SettingsIcon, ChevronRight, ChevronLeft, RefreshCw } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import CodeSnippetViewer from './CodeSnippetViewer';
 import { storageService } from '../services/storageService';
@@ -23,6 +23,7 @@ export default function NodeInspector({ isOpen, setIsOpen }: { isOpen: boolean; 
     selectEdge, 
     deleteNode, 
     deleteEdge, 
+    onConnect,
     activeProjectId, 
     activeGraphId, 
     cloudMode,
@@ -90,7 +91,11 @@ export default function NodeInspector({ isOpen, setIsOpen }: { isOpen: boolean; 
       parentId: targetParentId,
       position: { x: node.position.x + 50, y: node.position.y + 50 },
       selected: false,
-      extent: (targetParentId ? 'parent' : undefined) as any
+      extent: (targetParentId ? 'parent' : undefined) as any,
+      data: {
+        ...(node.data as any),
+        referenceTarget: ''
+      }
     };
     
     await storageService.saveNode(newNode as any, activeProjectId || undefined, cloudMode);
@@ -531,6 +536,69 @@ export default function NodeInspector({ isOpen, setIsOpen }: { isOpen: boolean; 
                 )}
               </div>
 
+              {data.nodeType === 'reference' && (
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Reference Target</label>
+                  <select
+                    value={data.referenceTarget || ''}
+                    onChange={(e) => {
+                      const targetId = e.target.value;
+                      if (!targetId) {
+                        handleChange('referenceTarget', '');
+                        const existingEdges = edges.filter(edge => edge.target === node.id);
+                        existingEdges.forEach(edge => {
+                          deleteEdge(edge.id);
+                        });
+                      } else {
+                        onConnect({
+                          source: targetId,
+                          target: node.id,
+                          sourceHandle: 'right',
+                          targetHandle: 'left',
+                        });
+                      }
+                    }}
+                    className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="">Select a node...</option>
+                    {(() => {
+                      const nodeMap = new Map(nodes.map(n => [n.id, n]));
+                      const descendants = new Set<string>();
+                      const findDescendants = (nodeId: string) => {
+                        nodes.filter(n => n.parentId === nodeId).forEach(child => {
+                          descendants.add(child.id);
+                          findDescendants(child.id);
+                        });
+                      };
+                      findDescendants(node.id);
+                      
+                      const getPath = (n: any) => {
+                        const path = [(n.data as any).title || 'Untitled Node'];
+                        let current = n;
+                        while (current.parentId && nodeMap.has(current.parentId)) {
+                          current = nodeMap.get(current.parentId);
+                          path.unshift((current.data as any).title || 'Untitled Node');
+                        }
+                        return path.join(' > ');
+                      };
+                      
+                      return nodes
+                        .filter(n => n.id !== node.id && !descendants.has(n.id))
+                        .map(n => ({
+                          id: n.id,
+                          label: getPath(n)
+                        }))
+                        .sort((a, b) => a.label.localeCompare(b.label))
+                        .map(n => (
+                          <option key={n.id} value={n.id}>
+                            {n.label}
+                          </option>
+                        ));
+                    })()}
+                  </select>
+                </div>
+              )}
+
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="block text-xs font-medium text-slate-700 dark:text-slate-300">Description</label>
@@ -582,6 +650,120 @@ export default function NodeInspector({ isOpen, setIsOpen }: { isOpen: boolean; 
                   className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Criticality</label>
+                <select
+                  value={data.criticality || ''}
+                  onChange={(e) => handleChange('criticality', e.target.value)}
+                  className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">None</option>
+                  <option value="mission-critical">Mission Critical</option>
+                  <option value="business-operational">Business Operational</option>
+                  <option value="non-critical">Non-Critical</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Layer</label>
+                <input
+                  type="text"
+                  value={data.layer || ''}
+                  onChange={(e) => handleChange('layer', e.target.value)}
+                  placeholder="e.g., Frontend, Backend, Database"
+                  className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              {(data.shape === 'bug' || data.shape === 'story') && (
+                <>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Status</label>
+                    <select
+                      value={data.status || ''}
+                      onChange={(e) => handleChange('status', e.target.value)}
+                      className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    >
+                      <option value="">None</option>
+                      <option value="To Do">To Do</option>
+                      <option value="In Progress">In Progress</option>
+                      <option value="Done">Done</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Assignee</label>
+                    <input
+                      type="text"
+                      value={data.assignee || ''}
+                      onChange={(e) => handleChange('assignee', e.target.value)}
+                      placeholder="e.g., John Doe"
+                      className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Priority</label>
+                    <select
+                      value={data.priority || ''}
+                      onChange={(e) => handleChange('priority', e.target.value)}
+                      className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    >
+                      <option value="">None</option>
+                      <option value="Low">Low</option>
+                      <option value="Medium">Medium</option>
+                      <option value="High">High</option>
+                      <option value="Critical">Critical</option>
+                    </select>
+                  </div>
+                </>
+              )}
+
+              {data.shape === 'repository' && (
+                <>
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="text-xs font-semibold text-slate-700 dark:text-slate-300">Live Data</h4>
+                    <button
+                      onClick={() => useGraphStore.getState().updateRepositoryNodeData(selectedNodeId!)}
+                      className="text-[10px] flex items-center gap-1 px-2 py-1 rounded bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-200 dark:hover:bg-indigo-800/50 transition-colors"
+                    >
+                      <RefreshCw className="w-3 h-3" /> Refresh
+                    </button>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Deployment Status</label>
+                    <select
+                      value={data.deploymentStatus || ''}
+                      onChange={(e) => handleChange('deploymentStatus', e.target.value)}
+                      className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    >
+                      <option value="">None</option>
+                      <option value="success">Success</option>
+                      <option value="failed">Failed</option>
+                      <option value="pending">Pending</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Open PR Count</label>
+                    <input
+                      type="number"
+                      value={data.openPrCount !== undefined ? data.openPrCount : ''}
+                      onChange={(e) => handleChange('openPrCount', e.target.value ? parseInt(e.target.value, 10) : undefined)}
+                      placeholder="e.g., 5"
+                      className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Last Commit Info</label>
+                    <input
+                      type="text"
+                      value={data.lastCommitInfo || ''}
+                      onChange={(e) => handleChange('lastCommitInfo', e.target.value)}
+                      placeholder="e.g., Fix login bug"
+                      className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                </>
+              )}
             </div>
 
             <div className="pt-4 border-t border-slate-200 dark:border-slate-800">

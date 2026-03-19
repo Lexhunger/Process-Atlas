@@ -10,6 +10,7 @@ import {
   Node,
   Edge,
   useReactFlow,
+  ConnectionMode,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useGraphStore } from '../store/graphStore';
@@ -24,6 +25,7 @@ const nodeTypes = {
   jiraNode: IssueNode,
   inputNode: CustomNode,
   outputNode: CustomNode,
+  referenceNode: CustomNode,
 };
 
 function RemoteCursors() {
@@ -76,6 +78,7 @@ function Flow() {
     updatePresence,
     focusNodeId,
     setFocusNodeId,
+    hiddenLayers,
   } = useGraphStore();
 
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
@@ -220,13 +223,22 @@ function Flow() {
   };
 
   const onPaneClick = useCallback(() => {
+    const state = useGraphStore.getState();
+    if (state.impactAnalysisMode) {
+      state.setImpactSelectedNode(null);
+    }
     selectNode(null);
     selectEdge(null);
   }, [selectNode, selectEdge]);
 
   const onNodeClick: NodeMouseHandler = useCallback(
     (_, node) => {
-      selectNode(node.id);
+      const state = useGraphStore.getState();
+      if (state.impactAnalysisMode) {
+        state.setImpactSelectedNode(node.id);
+      } else {
+        selectNode(node.id);
+      }
     },
     [selectNode]
   );
@@ -259,6 +271,7 @@ function Flow() {
       const type = event.dataTransfer.getData('application/reactflow');
       const templateId = event.dataTransfer.getData('application/templateId');
       const shape = event.dataTransfer.getData('application/shape');
+      const customNodeType = event.dataTransfer.getData('application/customNodeType');
 
       if (typeof type === 'undefined' || !type) {
         return;
@@ -300,7 +313,7 @@ function Flow() {
         if (position.x < 20) position.x = 20;
       }
 
-      addNode(position, type, templateId || undefined, shape || undefined, parentId);
+      addNode(position, type, templateId || undefined, shape || undefined, parentId, customNodeType || undefined);
     },
     [reactFlowInstance, addNode, nodes, getNodeDepth, getAbsolutePosition]
   );
@@ -333,9 +346,12 @@ function Flow() {
       }
     }
 
-    if (hiddenNodeIds.size > 0 || collapsedIds.size > 0) {
+    if (hiddenNodeIds.size > 0 || collapsedIds.size > 0 || hiddenLayers.length > 0) {
       processedNodes = processedNodes.map(node => {
         if (hiddenNodeIds.has(node.id)) {
+          return { ...node, hidden: true };
+        }
+        if (node.data.layer && hiddenLayers.includes(node.data.layer as string)) {
           return { ...node, hidden: true };
         }
         if (node.type === 'groupNode' && collapsedIds.has(node.id)) {
@@ -370,7 +386,7 @@ function Flow() {
         },
       };
     });
-  }, [nodes, searchQuery]);
+  }, [nodes, searchQuery, hiddenLayers]);
 
   const onNodesDelete = useCallback(
     (deleted: Node[]) => {
@@ -412,6 +428,7 @@ function Flow() {
         onNodeDragStop={onNodeDragStop}
         nodeTypes={nodeTypes}
         defaultEdgeOptions={{ type: 'smoothstep' }}
+        connectionMode={ConnectionMode.Loose}
         className="bg-slate-50 dark:bg-slate-900"
       >
         <Controls className="dark:bg-slate-800 dark:border-slate-700 dark:fill-slate-300" />

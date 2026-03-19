@@ -47,7 +47,9 @@ export interface Settings {
   issueManagementInstanceTypes: string[];
 }
 
-export type NodeShape = 'rectangle' | 'diamond' | 'circle' | 'pill' | 'parallelogram' | 'hexagon' | 'cylinder' | 'document' | 'component' | 'gear' | 'jira';
+export type NodeShape = 'rectangle' | 'diamond' | 'circle' | 'pill' | 'parallelogram' | 'hexagon' | 'cylinder' | 'document' | 'component' | 'gear' | 'jira' | 'step' | 'folder' | 'cloud' | 'actor' | 'callout' | 'browser' | 'stack' | 'queue' | 'database' | 'note' | 'repository' | 'bug' | 'story';
+
+export type CriticalityTier = 'mission-critical' | 'business-operational' | 'non-critical';
 
 export interface NodeData extends Record<string, unknown> {
   title: string;
@@ -65,8 +67,24 @@ export interface NodeData extends Record<string, unknown> {
   color?: string;
   jiraTicketId?: string;
   jiraConfigId?: string;
+  referenceTarget?: string;
   lastWidth?: number;
   lastHeight?: number;
+  criticality?: CriticalityTier;
+  layer?: string;
+  // Repository Node fields
+  repoUrl?: string;
+  deploymentStatus?: 'success' | 'failed' | 'pending';
+  openPrCount?: number;
+  lastCommitInfo?: string;
+  // Bug / User Story Node fields
+  issueId?: string;
+  status?: string;
+  severity?: string;
+  storyId?: string;
+  storyType?: string;
+  assignee?: string;
+  priority?: string;
 }
 
 export interface AppNode {

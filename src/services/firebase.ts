@@ -4,7 +4,12 @@ import { getFirestore, collection, doc, setDoc, getDoc, getDocs, onSnapshot, que
 import firebaseConfig from '../../firebase-applet-config.json';
 
 // Initialize Firebase SDK
-const app = initializeApp(firebaseConfig);
+const appConfig = {
+  ...firebaseConfig,
+  apiKey: process.env.VITE_FIREBASE_API_KEY || import.meta.env.VITE_FIREBASE_API_KEY || firebaseConfig.apiKey || "dummy-api-key-to-prevent-crash"
+};
+
+const app = initializeApp(appConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 
 // Enable persistence

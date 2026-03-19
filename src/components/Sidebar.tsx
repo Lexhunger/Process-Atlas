@@ -7,11 +7,11 @@ import { Project } from '../models/types';
 import { icons } from '../utils/icons';
 
 export default function Sidebar({ isOpen, onToggle }: { isOpen: boolean; onToggle: () => void }) {
-  const { projects, activeProjectId, createProject, loadProject, deleteProject, toggleProjectLocalOnly, templates, loadTemplates, issueManagementConfigs, cloudMode, devMode, nodes, selectNode, setFocusNodeId, drillDown, user } = useGraphStore();
+  const { projects, activeProjectId, createProject, loadProject, deleteProject, toggleProjectLocalOnly, templates, loadTemplates, issueManagementConfigs, cloudMode, devMode, nodes, selectNode, setFocusNodeId, drillDown, user, hiddenLayers, toggleLayerVisibility } = useGraphStore();
   const [newProjectName, setNewProjectName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [isTemplateManagerOpen, setIsTemplateManagerOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'projects' | 'project' | 'library'>('projects');
+  const [activeTab, setActiveTab] = useState<'projects' | 'project' | 'library' | 'layers'>('projects');
   const [selectedProjectForCollaborators, setSelectedProjectForCollaborators] = useState<Project | null>(null);
 
   const handleNodeClick = (nodeId: string) => {
@@ -48,13 +48,16 @@ export default function Sidebar({ isOpen, onToggle }: { isOpen: boolean; onToggl
     }
   };
 
-  const onDragStart = (event: any, nodeType: string, templateId?: string, shape?: string) => {
+  const onDragStart = (event: any, nodeType: string, templateId?: string, shape?: string, customNodeType?: string) => {
     event.dataTransfer.setData('application/reactflow', nodeType);
     if (templateId) {
       event.dataTransfer.setData('application/templateId', templateId);
     }
     if (shape) {
       event.dataTransfer.setData('application/shape', shape);
+    }
+    if (customNodeType) {
+      event.dataTransfer.setData('application/customNodeType', customNodeType);
     }
     event.dataTransfer.effectAllowed = 'move';
   };
@@ -75,6 +78,7 @@ export default function Sidebar({ isOpen, onToggle }: { isOpen: boolean; onToggl
         <button onClick={() => setActiveTab('projects')} className={`flex-1 py-3 text-xs font-bold uppercase tracking-wider ${activeTab === 'projects' ? 'text-indigo-600 dark:text-indigo-400 border-b-2 border-indigo-600 dark:border-indigo-400' : 'text-slate-500 dark:text-slate-400'}`}>Projects</button>
         <button onClick={() => setActiveTab('project')} className={`flex-1 py-3 text-xs font-bold uppercase tracking-wider ${activeTab === 'project' ? 'text-indigo-600 dark:text-indigo-400 border-b-2 border-indigo-600 dark:border-indigo-400' : 'text-slate-500 dark:text-slate-400'}`}>Project</button>
         <button onClick={() => setActiveTab('library')} className={`flex-1 py-3 text-xs font-bold uppercase tracking-wider ${activeTab === 'library' ? 'text-indigo-600 dark:text-indigo-400 border-b-2 border-indigo-600 dark:border-indigo-400' : 'text-slate-500 dark:text-slate-400'}`}>Library</button>
+        <button onClick={() => setActiveTab('layers')} className={`flex-1 py-3 text-xs font-bold uppercase tracking-wider ${activeTab === 'layers' ? 'text-indigo-600 dark:text-indigo-400 border-b-2 border-indigo-600 dark:border-indigo-400' : 'text-slate-500 dark:text-slate-400'}`}>Layers</button>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4">
@@ -215,6 +219,20 @@ export default function Sidebar({ isOpen, onToggle }: { isOpen: boolean; onToggl
             <div className="space-y-3">
               <div
                 className="flex items-center p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-sm cursor-grab hover:border-indigo-400 dark:hover:border-indigo-500 hover:shadow-md transition-all"
+                onDragStart={(event) => onDragStart(event, 'referenceNode', undefined, 'rectangle')}
+                draggable
+              >
+                <div className="w-8 h-8 bg-amber-100 dark:bg-amber-900/50 rounded flex items-center justify-center mr-3">
+                  <div className="w-4 h-4 rounded-sm bg-amber-500 dark:bg-amber-400" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-medium text-slate-900 dark:text-slate-100">Reference</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Link to another node</p>
+                </div>
+              </div>
+
+              <div
+                className="flex items-center p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-sm cursor-grab hover:border-indigo-400 dark:hover:border-indigo-500 hover:shadow-md transition-all"
                 onDragStart={(event) => onDragStart(event, 'groupNode')}
                 draggable
               >
@@ -341,6 +359,20 @@ export default function Sidebar({ isOpen, onToggle }: { isOpen: boolean; onToggl
 
               <div
                 className="flex items-center p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-sm cursor-grab hover:border-indigo-400 dark:hover:border-indigo-500 hover:shadow-md transition-all"
+                onDragStart={(event) => onDragStart(event, 'customNode', undefined, 'repository')}
+                draggable
+              >
+                <div className="w-8 h-8 bg-slate-100 dark:bg-slate-800 rounded flex items-center justify-center mr-3">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-600 dark:text-slate-400"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg>
+                </div>
+                <div>
+                  <h3 className="text-sm font-medium text-slate-900 dark:text-slate-100">Repository</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Code Repository</p>
+                </div>
+              </div>
+
+              <div
+                className="flex items-center p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-sm cursor-grab hover:border-indigo-400 dark:hover:border-indigo-500 hover:shadow-md transition-all"
                 onDragStart={(event) => onDragStart(event, 'customNode', undefined, 'document')}
                 draggable
               >
@@ -395,6 +427,34 @@ export default function Sidebar({ isOpen, onToggle }: { isOpen: boolean; onToggl
                 </div>
               </div>
 
+              <div
+                className="flex items-center p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-sm cursor-grab hover:border-indigo-400 dark:hover:border-indigo-500 hover:shadow-md transition-all"
+                onDragStart={(event) => onDragStart(event, 'customNode', undefined, 'bug')}
+                draggable
+              >
+                <div className="w-8 h-8 bg-red-100 dark:bg-red-900/50 rounded flex items-center justify-center mr-3">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-red-600 dark:text-red-400"><path d="m8 2 1.88 1.88"/><path d="M14.12 3.88 16 2"/><path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6"/><path d="M12 20v-9"/><path d="M6.53 9C4.6 8.8 3 7.1 3 5"/><path d="M6 13H2"/><path d="M3 21c0-2.1 1.7-3.9 3.8-4"/><path d="M20.97 5c0 2.1-1.6 3.8-3.5 4"/><path d="M22 13h-4"/><path d="M17.2 17c2.1.1 3.8 1.9 3.8 4"/></svg>
+                </div>
+                <div>
+                  <h3 className="text-sm font-medium text-slate-900 dark:text-slate-100">Bug</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Defect / Issue</p>
+                </div>
+              </div>
+
+              <div
+                className="flex items-center p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-sm cursor-grab hover:border-indigo-400 dark:hover:border-indigo-500 hover:shadow-md transition-all"
+                onDragStart={(event) => onDragStart(event, 'customNode', undefined, 'story')}
+                draggable
+              >
+                <div className="w-8 h-8 bg-emerald-100 dark:bg-emerald-900/50 rounded flex items-center justify-center mr-3">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-600 dark:text-emerald-400"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                </div>
+                <div>
+                  <h3 className="text-sm font-medium text-slate-900 dark:text-slate-100">User Story</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Feature / Requirement</p>
+                </div>
+              </div>
+
               {issueManagementConfigs.length > 0 && (
                 <div
                   className="flex items-center p-3 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-lg shadow-sm cursor-grab hover:border-indigo-400 dark:hover:border-indigo-500 hover:shadow-md transition-all"
@@ -444,6 +504,35 @@ export default function Sidebar({ isOpen, onToggle }: { isOpen: boolean; onToggl
                   </div>
                 );
               })}
+            </div>
+          </>
+        )}
+        {activeTab === 'layers' && (
+          <>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Layers</h2>
+              <button onClick={onToggle} className="p-1 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="space-y-2">
+              {Array.from(new Set(nodes.map(n => n.data.layer).filter((l): l is string => Boolean(l)))).map((layer) => (
+                <div key={layer} className="flex items-center justify-between px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md shadow-sm">
+                  <span className="text-sm text-slate-700 dark:text-slate-300">{layer}</span>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="sr-only peer"
+                      checked={!hiddenLayers.includes(layer)}
+                      onChange={() => toggleLayerVisibility(layer)}
+                    />
+                    <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 dark:peer-focus:ring-indigo-800 rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-slate-600 peer-checked:bg-indigo-600"></div>
+                  </label>
+                </div>
+              ))}
+              {Array.from(new Set(nodes.map(n => n.data.layer).filter(Boolean))).length === 0 && (
+                <p className="text-xs text-slate-500 dark:text-slate-400 text-center py-4 italic">No layers defined in nodes.</p>
+              )}
             </div>
           </>
         )}

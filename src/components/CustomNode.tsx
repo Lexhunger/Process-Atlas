@@ -8,11 +8,64 @@ export default function CustomNode({ id, data, selected }: { id: string; data: N
   const updateNodeData = useGraphStore((state) => state.updateNodeData);
   const drillDown = useGraphStore((state) => state.drillDown);
   const nodes = useGraphStore((state) => state.nodes);
+  const edges = useGraphStore((state) => state.edges);
+  const onConnect = useGraphStore((state) => state.onConnect);
+  const deleteEdge = useGraphStore((state) => state.deleteEdge);
   const simulationActiveNodeId = useGraphStore((state) => state.simulationActiveNodeId);
+  const impactAnalysisMode = useGraphStore((state) => state.impactAnalysisMode);
+  const impactSelectedNode = useGraphStore((state) => state.impactSelectedNode);
+  const hiddenLayers = useGraphStore((state) => state.hiddenLayers);
   
   const isSimulationActive = simulationActiveNodeId === id;
   const shape = data.shape || 'rectangle';
   const isExpanded = data.isExpanded;
+  
+  // Check if node is hidden by layer filtering
+  if (data.layer && hiddenLayers.includes(data.layer)) {
+    return null; // Don't render if layer is hidden
+  }
+
+  // Compute impact status
+  let impactStatus: 'selected' | 'upstream' | 'downstream' | 'none' | 'dimmed' = 'none';
+  if (impactAnalysisMode && impactSelectedNode) {
+    if (id === impactSelectedNode) {
+      impactStatus = 'selected';
+    } else {
+      const isDownstream = (startId: string, targetId: string, visited = new Set<string>()): boolean => {
+        if (startId === targetId) return true;
+        visited.add(startId);
+        const outgoingEdges = edges.filter(e => e.source === startId);
+        for (const edge of outgoingEdges) {
+          if (!visited.has(edge.target)) {
+            if (isDownstream(edge.target, targetId, visited)) return true;
+          }
+        }
+        return false;
+      };
+
+      const isUpstream = (startId: string, targetId: string, visited = new Set<string>()): boolean => {
+        if (startId === targetId) return true;
+        visited.add(startId);
+        const incomingEdges = edges.filter(e => e.target === startId);
+        for (const edge of incomingEdges) {
+          if (!visited.has(edge.source)) {
+            if (isUpstream(edge.source, targetId, visited)) return true;
+          }
+        }
+        return false;
+      };
+
+      if (isDownstream(impactSelectedNode, id)) {
+        impactStatus = 'downstream';
+      } else if (isUpstream(impactSelectedNode, id)) {
+        impactStatus = 'upstream';
+      } else {
+        impactStatus = 'dimmed';
+      }
+    }
+  } else if (impactAnalysisMode && !impactSelectedNode) {
+    impactStatus = 'dimmed'; // Dim all if mode is active but nothing selected
+  }
   
   const toggleExpand = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -30,6 +83,60 @@ export default function CustomNode({ id, data, selected }: { id: string; data: N
       return <IconComponent className={className} />;
     }
     return null;
+  };
+
+  const getHierarchicalNodes = () => {
+    const nodeMap = new Map(nodes.map(n => [n.id, n]));
+    
+    // Find descendants of currentId to exclude them
+    const descendants = new Set<string>();
+    const findDescendants = (nodeId: string) => {
+      nodes.filter(n => n.parentId === nodeId).forEach(child => {
+        descendants.add(child.id);
+        findDescendants(child.id);
+      });
+    };
+    findDescendants(id);
+    
+    const getPath = (node: any) => {
+      const path = [node.data.title || 'Untitled Node'];
+      let current = node;
+      while (current.parentId && nodeMap.has(current.parentId)) {
+        current = nodeMap.get(current.parentId);
+        path.unshift(current.data.title || 'Untitled Node');
+      }
+      return path.join(' > ');
+    };
+    
+    return nodes
+      .filter(n => n.id !== id && !descendants.has(n.id))
+      .map(n => ({
+        id: n.id,
+        label: getPath(n)
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  };
+
+  const handleReferenceChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const targetId = e.target.value;
+    
+    if (!targetId) {
+      updateNodeData(id, { referenceTarget: '' });
+      // Find existing incoming edges to this reference node
+      const existingEdges = edges.filter(edge => edge.target === id);
+      // Delete existing edges
+      existingEdges.forEach(edge => {
+        deleteEdge(edge.id);
+      });
+    } else {
+      // Create new edge if a target is selected, onConnect will handle the cleanup and data update
+      onConnect({
+        source: targetId,
+        target: id,
+        sourceHandle: 'right', // Default handle
+        targetHandle: 'left', // Default handle
+      });
+    }
   };
 
   const tooltip = (
@@ -75,18 +182,16 @@ export default function CustomNode({ id, data, selected }: { id: string; data: N
           }}
           onResizeEnd={() => useGraphStore.getState().takeSnapshot()}
         />
-        {data.nodeType !== 'input' && (
-          <>
-            <Handle type="target" position={Position.Top} id="top" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50" />
-            <Handle type="target" position={Position.Left} id="left" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50" />
-          </>
-        )}
-        {data.nodeType !== 'output' && (
-          <>
-            <Handle type="source" position={Position.Right} id="right" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50" />
-            <Handle type="source" position={Position.Bottom} id="bottom" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50" />
-          </>
-        )}
+        <>
+          <Handle type="target" position={Position.Top} id="top" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50" />
+          <Handle type="target" position={Position.Left} id="left" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50" />
+          {data.nodeType !== 'reference' && (
+            <>
+              <Handle type="source" position={Position.Right} id="right" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50" />
+              <Handle type="source" position={Position.Bottom} id="bottom" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50" />
+            </>
+          )}
+        </>
         <div
           className={`w-full h-full rounded-xl border-2 backdrop-blur-sm flex flex-col relative ${
             selected ? 'border-indigo-500 ring-2 ring-indigo-200 dark:ring-indigo-900/50' : 'border-slate-300 dark:border-slate-700 border-dashed'
@@ -151,11 +256,16 @@ export default function CustomNode({ id, data, selected }: { id: string; data: N
   const isBrowser = shape === 'browser';
   const isStack = shape === 'stack';
   const isQueue = shape === 'queue';
+  const isRepository = shape === 'repository';
+  const isBug = shape === 'bug';
+  const isStory = shape === 'story';
 
   // Hexagon requires clip-path, we'll use a specific class for it if needed, 
   // but for simplicity we can use standard CSS for most.
   
-  const containerClasses = `relative flex items-center justify-center ${
+  const containerClasses = `relative flex items-center justify-center transition-all duration-300 ${
+    impactStatus === 'dimmed' ? 'opacity-30 grayscale' : ''
+  } ${
     isDiamond ? 'w-40 h-40 rotate-45' : 
     isCircle ? 'w-40 h-40' : 
     isPill ? 'min-w-[160px] px-4 py-2' :
@@ -174,13 +284,24 @@ export default function CustomNode({ id, data, selected }: { id: string; data: N
     isBrowser ? 'min-w-[180px] min-h-[120px] px-4 py-4 pt-10' :
     isStack ? 'min-w-[160px] min-h-[100px] px-4 py-4 mb-4 mr-4' :
     isQueue ? 'min-w-[160px] min-h-[80px] px-8 py-3' :
+    isRepository ? 'min-w-[180px] min-h-[100px] px-4 py-4' :
+    isBug ? 'min-w-[160px] min-h-[80px] px-4 py-3' :
+    isStory ? 'min-w-[160px] min-h-[80px] px-4 py-3' :
     'min-w-[150px] p-3'
   }`;
 
-  const bgClasses = `absolute inset-0 border-2 shadow-md ${
+  const bgClasses = `absolute inset-0 border-2 shadow-md transition-all duration-300 ${
     selected ? 'border-indigo-500 shadow-lg ring-2 ring-indigo-200 dark:ring-indigo-900/50' : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
   } ${
     isSimulationActive ? 'ring-4 ring-emerald-400 dark:ring-emerald-500 ring-offset-2 dark:ring-offset-slate-900 z-50 animate-pulse' : ''
+  } ${
+    impactStatus === 'selected' ? 'ring-4 ring-indigo-500 dark:ring-indigo-400 ring-offset-2 dark:ring-offset-slate-900 z-50' :
+    impactStatus === 'downstream' ? 'ring-4 ring-red-500 dark:ring-red-400 ring-offset-2 dark:ring-offset-slate-900 z-40 bg-red-50 dark:bg-red-900/20' :
+    impactStatus === 'upstream' ? 'ring-4 ring-yellow-500 dark:ring-yellow-400 ring-offset-2 dark:ring-offset-slate-900 z-40 bg-yellow-50 dark:bg-yellow-900/20' :
+    ''
+  } ${
+    data.criticality === 'mission-critical' ? 'border-red-500 dark:border-red-500 border-4' :
+    data.criticality === 'business-operational' ? 'border-amber-500 dark:border-amber-500 border-4' : ''
   } ${
     isDiamond ? 'rounded-lg' :
     isCircle ? 'rounded-full' :
@@ -194,6 +315,8 @@ export default function CustomNode({ id, data, selected }: { id: string; data: N
     isStep ? 'rounded-sm' :
     isFolder ? 'rounded-sm' :
     isJira ? 'rounded-md border-l-4 border-l-blue-500 dark:border-l-blue-400' :
+    isBug ? 'rounded-md border-l-4 border-l-red-500 dark:border-l-red-400' :
+    isStory ? 'rounded-md border-l-4 border-l-emerald-500 dark:border-l-emerald-400' :
     isCloud ? '' :
     isActor ? 'border-none shadow-none bg-transparent' :
     isCallout ? 'rounded-xl' :
@@ -319,42 +442,40 @@ export default function CustomNode({ id, data, selected }: { id: string; data: N
         </div>
       )}
 
-      {data.nodeType !== 'input' && (
-        <>
-          <Handle 
-            type="target" 
-            position={Position.Top} 
-            id="top" 
-            className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50" 
-            style={isFolder ? { top: '20%' } : isCloud ? { top: '15%' } : isDiamond ? { top: 0, left: 0 } : {}}
-          />
-          <Handle 
-            type="target" 
-            position={Position.Left} 
-            id="left" 
-            className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50" 
-            style={isStep ? { left: '15%' } : isCloud ? { left: '10%' } : isDiamond ? { top: '100%', left: 0 } : {}}
-          />
-        </>
-      )}
-      {data.nodeType !== 'output' && (
-        <>
-          <Handle 
-            type="source" 
-            position={Position.Right} 
-            id="right" 
-            className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50" 
-            style={isCloud ? { right: '10%' } : isStack ? { right: '-16px' } : isDiamond ? { top: 0, left: '100%' } : {}}
-          />
-          <Handle 
-            type="source" 
-            position={Position.Bottom} 
-            id="bottom" 
-            className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50" 
-            style={isCallout ? { left: '75%', bottom: 0 } : isCloud ? { bottom: '15%' } : isStack ? { bottom: '-16px' } : isDiamond ? { top: '100%', left: '100%' } : {}}
-          />
-        </>
-      )}
+      <>
+        <Handle 
+          type="target" 
+          position={Position.Top} 
+          id="top" 
+          className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50" 
+          style={isFolder ? { top: '20%' } : isCloud ? { top: '15%' } : isDiamond ? { top: 0, left: 0 } : {}}
+        />
+        <Handle 
+          type="target" 
+          position={Position.Left} 
+          id="left" 
+          className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50" 
+          style={isStep ? { left: '15%' } : isCloud ? { left: '10%' } : isDiamond ? { top: '100%', left: 0 } : {}}
+        />
+        {data.nodeType !== 'reference' && (
+          <>
+            <Handle 
+              type="source" 
+              position={Position.Right} 
+              id="right" 
+              className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50" 
+              style={isCloud ? { right: '10%' } : isStack ? { right: '-16px' } : isDiamond ? { top: 0, left: '100%' } : {}}
+            />
+            <Handle 
+              type="source" 
+              position={Position.Bottom} 
+              id="bottom" 
+              className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50" 
+              style={isCallout ? { left: '75%', bottom: 0 } : isCloud ? { bottom: '15%' } : isStack ? { bottom: '-16px' } : isDiamond ? { top: '100%', left: '100%' } : {}}
+            />
+          </>
+        )}
+      </>
       
       <div className={contentClasses}>
         <div className={`flex items-center gap-2 ${isDiamond || isCircle ? 'justify-center' : 'justify-between'}`}>
@@ -380,6 +501,86 @@ export default function CustomNode({ id, data, selected }: { id: string; data: N
           <p className={`text-xs line-clamp-2 mt-1 ${shape === 'note' ? 'text-slate-700' : 'text-slate-500 dark:text-slate-400'}`}>{data.description}</p>
         )}
         
+        {data.nodeType === 'reference' && !isDiamond && !isCircle && (
+          <div className="mt-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+            <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-1 uppercase tracking-wider">
+              Reference Target
+            </label>
+            <select
+              value={data.referenceTarget || ''}
+              onChange={handleReferenceChange}
+              className="w-full text-xs bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            >
+              <option value="">Select a node...</option>
+              {getHierarchicalNodes().map(node => (
+                <option key={node.id} value={node.id}>
+                  {node.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {isRepository && (
+          <div className="mt-2 pt-2 border-t border-slate-200 dark:border-slate-700 space-y-1">
+            {data.deploymentStatus && (
+              <div className="flex items-center justify-between text-[10px]">
+                <span className="text-slate-500 dark:text-slate-400">Status</span>
+                <span className={`font-medium ${
+                  data.deploymentStatus === 'success' ? 'text-emerald-600 dark:text-emerald-400' :
+                  data.deploymentStatus === 'failed' ? 'text-red-600 dark:text-red-400' :
+                  'text-amber-600 dark:text-amber-400'
+                }`}>
+                  {data.deploymentStatus.toUpperCase()}
+                </span>
+              </div>
+            )}
+            {data.openPrCount !== undefined && (
+              <div className="flex items-center justify-between text-[10px]">
+                <span className="text-slate-500 dark:text-slate-400">Open PRs</span>
+                <span className="font-medium text-slate-700 dark:text-slate-300">{data.openPrCount}</span>
+              </div>
+            )}
+            {data.lastCommitInfo && (
+              <div className="flex items-center justify-between text-[10px]">
+                <span className="text-slate-500 dark:text-slate-400">Last Commit</span>
+                <span className="font-medium text-slate-700 dark:text-slate-300 truncate max-w-[80px]" title={data.lastCommitInfo}>{data.lastCommitInfo}</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {(isBug || isStory) && (
+          <div className="mt-2 pt-2 border-t border-slate-200 dark:border-slate-700 space-y-1">
+            {data.status && (
+              <div className="flex items-center justify-between text-[10px]">
+                <span className="text-slate-500 dark:text-slate-400">Status</span>
+                <span className="font-medium text-slate-700 dark:text-slate-300">
+                  {data.status}
+                </span>
+              </div>
+            )}
+            {data.assignee && (
+              <div className="flex items-center justify-between text-[10px]">
+                <span className="text-slate-500 dark:text-slate-400">Assignee</span>
+                <span className="font-medium text-slate-700 dark:text-slate-300 truncate max-w-[80px]" title={data.assignee}>{data.assignee}</span>
+              </div>
+            )}
+            {data.priority && (
+              <div className="flex items-center justify-between text-[10px]">
+                <span className="text-slate-500 dark:text-slate-400">Priority</span>
+                <span className={`font-medium ${
+                  data.priority === 'High' || data.priority === 'Critical' ? 'text-red-600 dark:text-red-400' :
+                  data.priority === 'Medium' ? 'text-amber-600 dark:text-amber-400' :
+                  'text-emerald-600 dark:text-emerald-400'
+                }`}>
+                  {data.priority}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+
         {data.tags && data.tags.length > 0 && !isDiamond && !isCircle && (
           <div className="flex flex-wrap gap-1 mt-2">
             {data.tags.slice(0, 3).map((tag, i) => (
