@@ -93,6 +93,8 @@ export default function Settings({ onClose }: SettingsProps) {
     alert('API keys saved locally.');
   };
 
+  const isAdmin = user?.email === 'bmporter12@gmail.com';
+
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200">
       <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 duration-200">
@@ -165,29 +167,31 @@ export default function Settings({ onClose }: SettingsProps) {
             </div>
 
             <div className="mt-4 flex flex-col gap-4">
-              <div className="flex items-center justify-between p-4 bg-slate-800/50 border border-slate-700 rounded-xl">
-                <div className="flex items-center gap-3">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${devMode ? 'bg-amber-500/20' : 'bg-slate-700'}`}>
-                    <Zap className={`w-5 h-5 ${devMode ? 'text-amber-400' : 'text-slate-400'}`} />
+              {isAdmin && (
+                <div className="flex items-center justify-between p-4 bg-slate-800/50 border border-slate-700 rounded-xl">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${devMode ? 'bg-amber-500/20' : 'bg-slate-700'}`}>
+                      <Zap className={`w-5 h-5 ${devMode ? 'text-amber-400' : 'text-slate-400'}`} />
+                    </div>
+                    <div>
+                      <div className="text-sm font-bold text-white">Developer Mode</div>
+                      <div className="text-xs text-slate-400">Store projects locally, only sync structural changes</div>
+                    </div>
                   </div>
-                  <div>
-                    <div className="text-sm font-bold text-white">Developer Mode</div>
-                    <div className="text-xs text-slate-400">Store projects locally, only sync structural changes</div>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setDevMode(!devMode)}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-slate-900 ${
-                    devMode ? 'bg-amber-500' : 'bg-slate-600'
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                      devMode ? 'translate-x-6' : 'translate-x-1'
+                  <button
+                    onClick={() => setDevMode(!devMode)}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-slate-900 ${
+                      devMode ? 'bg-amber-500' : 'bg-slate-600'
                     }`}
-                  />
-                </button>
-              </div>
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        devMode ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+              )}
 
               <div className="flex items-center justify-between p-4 bg-slate-800/50 border border-slate-700 rounded-xl">
                 <div className="flex items-center gap-3">
@@ -237,29 +241,31 @@ export default function Settings({ onClose }: SettingsProps) {
                 </button>
               </div>
 
-              <div className="flex items-center justify-between p-4 bg-slate-800/50 border border-slate-700 rounded-xl">
-                <div className="flex items-center gap-3">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${aiEnabled ? 'bg-emerald-500/20' : 'bg-slate-700'}`}>
-                    <Sparkles className={`w-5 h-5 ${aiEnabled ? 'text-emerald-400' : 'text-slate-400'}`} />
+              {isAdmin && (
+                <div className="flex items-center justify-between p-4 bg-slate-800/50 border border-slate-700 rounded-xl">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${aiEnabled ? 'bg-emerald-500/20' : 'bg-slate-700'}`}>
+                      <Sparkles className={`w-5 h-5 ${aiEnabled ? 'text-emerald-400' : 'text-slate-400'}`} />
+                    </div>
+                    <div>
+                      <div className="text-sm font-bold text-white">AI Features</div>
+                      <div className="text-xs text-slate-400">Enable AI-powered generation and optimization</div>
+                    </div>
                   </div>
-                  <div>
-                    <div className="text-sm font-bold text-white">AI Features</div>
-                    <div className="text-xs text-slate-400">Enable AI-powered generation and optimization</div>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setAiEnabled(!aiEnabled)}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-slate-900 ${
-                    aiEnabled ? 'bg-emerald-500' : 'bg-slate-600'
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                      aiEnabled ? 'translate-x-6' : 'translate-x-1'
+                  <button
+                    onClick={() => setAiEnabled(!aiEnabled)}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-slate-900 ${
+                      aiEnabled ? 'bg-emerald-500' : 'bg-slate-600'
                     }`}
-                  />
-                </button>
-              </div>
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        aiEnabled ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+              )}
 
               <div className="flex items-center justify-between p-4 bg-slate-800/50 border border-slate-700 rounded-xl">
                 <div className="flex items-center gap-3">
@@ -334,10 +340,11 @@ export default function Settings({ onClose }: SettingsProps) {
           </section>
 
           {/* Issue Management Integration */}
-          <section>
-            <h3 className="text-sm font-bold text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
-              <SettingsIcon className="w-4 h-4" /> Issue Management Integration
-            </h3>
+          {isAdmin && (
+            <section>
+              <h3 className="text-sm font-bold text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+                <SettingsIcon className="w-4 h-4" /> Issue Management Integration
+              </h3>
             
             <div className="space-y-4">
               {issueManagementConfigs.map((config) => (
@@ -434,9 +441,10 @@ export default function Settings({ onClose }: SettingsProps) {
               </div>
             </div>
           </section>
+          )}
 
           {/* AI Model Selection */}
-          {aiEnabled && (
+          {aiEnabled && isAdmin && (
             <section>
               <h3 className="text-sm font-bold text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
                 <Sparkles className="w-4 h-4" /> AI Model Selection
@@ -471,7 +479,7 @@ export default function Settings({ onClose }: SettingsProps) {
           )}
 
           {/* AI Models */}
-          {aiEnabled && (
+          {aiEnabled && isAdmin && (
             <section>
               <h3 className="text-sm font-bold text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
                 <Key className="w-4 h-4" /> External AI Models

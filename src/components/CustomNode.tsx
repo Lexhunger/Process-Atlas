@@ -169,7 +169,7 @@ export default function CustomNode({ id, data, selected }: { id: string; data: N
 
   if (isExpanded) {
     return (
-      <>
+      <div className="group w-full h-full">
         {tooltip}
         <NodeResizer 
           color="#6366f1" 
@@ -189,6 +189,16 @@ export default function CustomNode({ id, data, selected }: { id: string; data: N
             <>
               <Handle type="source" position={Position.Right} id="right" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50" />
               <Handle type="source" position={Position.Bottom} id="bottom" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50" />
+              
+              {/* Extra Handles for multiple edges */}
+              <Handle type="target" position={Position.Top} id="top-left" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50 opacity-0 group-hover:opacity-100 transition-opacity" style={{ left: '25%' }} />
+              <Handle type="target" position={Position.Top} id="top-right" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50 opacity-0 group-hover:opacity-100 transition-opacity" style={{ left: '75%' }} />
+              <Handle type="target" position={Position.Left} id="left-top" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50 opacity-0 group-hover:opacity-100 transition-opacity" style={{ top: '25%' }} />
+              <Handle type="target" position={Position.Left} id="left-bottom" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50 opacity-0 group-hover:opacity-100 transition-opacity" style={{ top: '75%' }} />
+              <Handle type="source" position={Position.Right} id="right-top" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50 opacity-0 group-hover:opacity-100 transition-opacity" style={{ top: '25%' }} />
+              <Handle type="source" position={Position.Right} id="right-bottom" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50 opacity-0 group-hover:opacity-100 transition-opacity" style={{ top: '75%' }} />
+              <Handle type="source" position={Position.Bottom} id="bottom-left" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50 opacity-0 group-hover:opacity-100 transition-opacity" style={{ left: '25%' }} />
+              <Handle type="source" position={Position.Bottom} id="bottom-right" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50 opacity-0 group-hover:opacity-100 transition-opacity" style={{ left: '75%' }} />
             </>
           )}
         </>
@@ -234,7 +244,7 @@ export default function CustomNode({ id, data, selected }: { id: string; data: N
             </div>
           )}
         </div>
-      </>
+      </div>
     );
   }
 
@@ -263,34 +273,35 @@ export default function CustomNode({ id, data, selected }: { id: string; data: N
   // Hexagon requires clip-path, we'll use a specific class for it if needed, 
   // but for simplicity we can use standard CSS for most.
   
-  const containerClasses = `relative flex items-center justify-center transition-all duration-300 ${
+  const containerClasses = `group relative flex items-center justify-center transition-all duration-300 ${
     impactStatus === 'dimmed' ? 'opacity-30 grayscale' : ''
   } ${
-    isDiamond ? 'w-40 h-40 rotate-45' : 
-    isCircle ? 'w-40 h-40' : 
-    isPill ? 'min-w-[160px] px-4 py-2' :
-    isParallelogram ? 'min-w-[160px] px-6 py-2' :
-    isHexagon ? 'min-w-[160px] min-h-[100px] px-6 py-4' :
-    isCylinder ? 'min-w-[150px] min-h-[100px] px-4 py-6' :
-    isDocument ? 'min-w-[150px] min-h-[110px] px-4 py-5' :
-    isComponent ? 'min-w-[160px] min-h-[100px] px-6 py-4' :
-    isGear ? 'w-40 h-40' :
-    isStep ? 'min-w-[160px] min-h-[80px] px-8 py-3 pl-10' :
-    isFolder ? 'min-w-[150px] min-h-[100px] px-4 py-6 pt-8' :
-    isJira ? 'min-w-[160px] min-h-[80px] px-4 py-3' :
-    isCloud ? 'min-w-[160px] min-h-[100px] px-6 py-6' :
-    isActor ? 'min-w-[120px] min-h-[140px] px-4 py-2 pt-16' :
-    isCallout ? 'min-w-[160px] min-h-[100px] px-4 py-4 pb-8' :
-    isBrowser ? 'min-w-[180px] min-h-[120px] px-4 py-4 pt-10' :
-    isStack ? 'min-w-[160px] min-h-[100px] px-4 py-4 mb-4 mr-4' :
-    isQueue ? 'min-w-[160px] min-h-[80px] px-8 py-3' :
-    isRepository ? 'min-w-[180px] min-h-[100px] px-4 py-4' :
-    isBug ? 'min-w-[160px] min-h-[80px] px-4 py-3' :
-    isStory ? 'min-w-[160px] min-h-[80px] px-4 py-3' :
-    'min-w-[150px] p-3'
+    isDiamond ? 'rotate-45 aspect-square' : 
+    isCircle ? 'w-auto h-auto aspect-square' : 
+    isParallelogram ? '' :
+    isHexagon ? '' :
+    isCylinder ? '' :
+    isDocument ? '' :
+    isComponent ? '' :
+    isGear ? 'aspect-square' :
+    isStep ? '' :
+    isFolder ? '' :
+    isJira ? '' :
+    isCloud ? '' :
+    isActor ? '' :
+    isCallout ? '' :
+    isBrowser ? '' :
+    isStack ? '' :
+    isQueue ? '' :
+    isRepository ? '' :
+    isBug ? '' :
+    isStory ? '' :
+    ''
   }`;
 
   const bgClasses = `absolute inset-0 border-2 shadow-md transition-all duration-300 ${
+    !data.color && shape !== 'note' && !isActor ? 'bg-white dark:bg-slate-800' : ''
+  } ${
     selected ? 'border-indigo-500 shadow-lg ring-2 ring-indigo-200 dark:ring-indigo-900/50' : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
   } ${
     isSimulationActive ? 'ring-4 ring-emerald-400 dark:ring-emerald-500 ring-offset-2 dark:ring-offset-slate-900 z-50 animate-pulse' : ''
@@ -328,8 +339,12 @@ export default function CustomNode({ id, data, selected }: { id: string; data: N
 
   const contentClasses = `relative z-10 flex flex-col gap-1 w-full ${
     isDiamond ? 'items-center text-center max-w-[110px] -rotate-45' :
-    isCircle || isGear || isActor ? 'items-center text-center max-w-[110px]' : ''
+    isCircle ? 'items-center text-center max-w-[120px]' :
+    isGear || isActor ? 'items-center text-center max-w-[110px]' : ''
   }`;
+
+  const scale = data.scale || 1;
+  const hasCustomBg = !!data.color || shape === 'note';
 
   const getStyle = () => {
     let bgColor = data.color;
@@ -358,8 +373,37 @@ export default function CustomNode({ id, data, selected }: { id: string; data: N
     return style;
   };
 
+  const getContainerStyle = () => {
+    const style: any = {};
+    
+    if (isDiamond) { style.width = `${160 * scale}px`; style.height = `${160 * scale}px`; }
+    else if (isCircle) { style.width = `${60 * scale}px`; style.height = `${60 * scale}px`; style.padding = `${12 * scale}px`; }
+    else if (isPill) { style.width = `${160 * scale}px`; style.padding = `${8 * scale}px ${16 * scale}px`; }
+    else if (isParallelogram) { style.width = `${160 * scale}px`; style.padding = `${8 * scale}px ${24 * scale}px`; }
+    else if (isHexagon) { style.width = `${160 * scale}px`; style.height = `${100 * scale}px`; style.padding = `${16 * scale}px ${24 * scale}px`; }
+    else if (isCylinder) { style.width = `${150 * scale}px`; style.height = `${100 * scale}px`; style.padding = `${24 * scale}px ${16 * scale}px`; }
+    else if (isDocument) { style.width = `${150 * scale}px`; style.height = `${110 * scale}px`; style.padding = `${20 * scale}px ${16 * scale}px`; }
+    else if (isComponent) { style.width = `${160 * scale}px`; style.height = `${100 * scale}px`; style.padding = `${16 * scale}px ${24 * scale}px`; }
+    else if (isGear) { style.width = `${160 * scale}px`; style.height = `${160 * scale}px`; }
+    else if (isStep) { style.width = `${160 * scale}px`; style.height = `${80 * scale}px`; style.padding = `${12 * scale}px ${32 * scale}px ${12 * scale}px ${40 * scale}px`; }
+    else if (isFolder) { style.width = `${150 * scale}px`; style.height = `${100 * scale}px`; style.padding = `${32 * scale}px ${16 * scale}px ${24 * scale}px ${16 * scale}px`; }
+    else if (isJira) { style.width = `${160 * scale}px`; style.height = `${80 * scale}px`; style.padding = `${12 * scale}px ${16 * scale}px`; }
+    else if (isCloud) { style.width = `${160 * scale}px`; style.height = `${100 * scale}px`; style.padding = `${24 * scale}px`; }
+    else if (isActor) { style.width = `${120 * scale}px`; style.height = `${140 * scale}px`; style.padding = `${64 * scale}px ${16 * scale}px ${8 * scale}px ${16 * scale}px`; }
+    else if (isCallout) { style.width = `${160 * scale}px`; style.height = `${100 * scale}px`; style.padding = `${16 * scale}px ${16 * scale}px ${32 * scale}px ${16 * scale}px`; }
+    else if (isBrowser) { style.width = `${180 * scale}px`; style.height = `${120 * scale}px`; style.padding = `${40 * scale}px ${16 * scale}px ${16 * scale}px ${16 * scale}px`; }
+    else if (isStack) { style.width = `${160 * scale}px`; style.height = `${100 * scale}px`; style.padding = `${16 * scale}px`; style.marginBottom = `${16 * scale}px`; style.marginRight = `${16 * scale}px`; }
+    else if (isQueue) { style.width = `${160 * scale}px`; style.height = `${80 * scale}px`; style.padding = `${12 * scale}px ${32 * scale}px`; }
+    else if (isRepository) { style.width = `${180 * scale}px`; style.height = `${100 * scale}px`; style.padding = `${16 * scale}px`; }
+    else if (isBug) { style.width = `${160 * scale}px`; style.height = `${80 * scale}px`; style.padding = `${12 * scale}px ${16 * scale}px`; }
+    else if (isStory) { style.width = `${160 * scale}px`; style.height = `${80 * scale}px`; style.padding = `${12 * scale}px ${16 * scale}px`; }
+    else { style.width = `${150 * scale}px`; style.padding = `${12 * scale}px`; }
+    
+    return style;
+  };
+
   return (
-    <div className={containerClasses}>
+    <div className={containerClasses} style={getContainerStyle()}>
       {tooltip}
       
       {/* Stack Layers */}
@@ -473,13 +517,27 @@ export default function CustomNode({ id, data, selected }: { id: string; data: N
               className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50" 
               style={isCallout ? { left: '75%', bottom: 0 } : isCloud ? { bottom: '15%' } : isStack ? { bottom: '-16px' } : isDiamond ? { top: '100%', left: '100%' } : {}}
             />
+            
+            {/* Extra Handles for multiple edges (e.g., decision trees) */}
+            {!isDiamond && !isCircle && !isGear && !isCloud && !isActor && !isCylinder && !isStep && !isFolder && !isCallout && !isHexagon && (
+              <>
+                <Handle type="target" position={Position.Top} id="top-left" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50 opacity-0 group-hover:opacity-100 transition-opacity" style={{ left: '25%' }} />
+                <Handle type="target" position={Position.Top} id="top-right" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50 opacity-0 group-hover:opacity-100 transition-opacity" style={{ left: '75%' }} />
+                <Handle type="target" position={Position.Left} id="left-top" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50 opacity-0 group-hover:opacity-100 transition-opacity" style={{ top: '25%' }} />
+                <Handle type="target" position={Position.Left} id="left-bottom" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50 opacity-0 group-hover:opacity-100 transition-opacity" style={{ top: '75%' }} />
+                <Handle type="source" position={Position.Right} id="right-top" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50 opacity-0 group-hover:opacity-100 transition-opacity" style={{ top: '25%' }} />
+                <Handle type="source" position={Position.Right} id="right-bottom" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50 opacity-0 group-hover:opacity-100 transition-opacity" style={{ top: '75%' }} />
+                <Handle type="source" position={Position.Bottom} id="bottom-left" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50 opacity-0 group-hover:opacity-100 transition-opacity" style={{ left: '25%' }} />
+                <Handle type="source" position={Position.Bottom} id="bottom-right" className="w-3 h-3 bg-indigo-400 dark:bg-indigo-500 z-50 opacity-0 group-hover:opacity-100 transition-opacity" style={{ left: '75%' }} />
+              </>
+            )}
           </>
         )}
       </>
       
       <div className={contentClasses}>
         <div className={`flex items-center gap-2 ${isDiamond || isCircle ? 'justify-center' : 'justify-between'}`}>
-          <div className={`flex items-center gap-1.5 ${shape === 'note' ? 'text-slate-700' : 'text-slate-500 dark:text-slate-400'}`}>
+          <div className={`flex items-center gap-1.5 ${hasCustomBg ? 'text-slate-700' : 'text-slate-500 dark:text-slate-400'}`}>
             {renderIcon("w-3.5 h-3.5")}
             <span className="text-xs font-semibold uppercase tracking-wider">
               {data.nodeType === 'default' ? '' : (data.nodeType || '')}
@@ -496,20 +554,24 @@ export default function CustomNode({ id, data, selected }: { id: string; data: N
             </button>
           )}
         </div>
-        <h3 className={`text-sm font-medium line-clamp-2 ${shape === 'note' ? 'text-slate-900' : 'text-slate-900 dark:text-slate-100'}`}>{data.title}</h3>
+        <h3 className={`text-sm font-medium line-clamp-2 ${hasCustomBg ? 'text-slate-900' : 'text-slate-900 dark:text-slate-100'}`}>{data.title}</h3>
         {data.description && !isDiamond && !isCircle && (
-          <p className={`text-xs line-clamp-2 mt-1 ${shape === 'note' ? 'text-slate-700' : 'text-slate-500 dark:text-slate-400'}`}>{data.description}</p>
+          <p className={`text-xs line-clamp-2 mt-1 ${hasCustomBg ? 'text-slate-700' : 'text-slate-500 dark:text-slate-400'}`}>{data.description}</p>
         )}
         
         {data.nodeType === 'reference' && !isDiamond && !isCircle && (
-          <div className="mt-2 pt-2 border-t border-slate-200 dark:border-slate-700">
-            <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-1 uppercase tracking-wider">
+          <div className={`mt-2 pt-2 border-t ${hasCustomBg ? 'border-black/10' : 'border-slate-200 dark:border-slate-700'}`}>
+            <label className={`block text-[10px] font-semibold mb-1 uppercase tracking-wider ${hasCustomBg ? 'text-slate-700' : 'text-slate-500 dark:text-slate-400'}`}>
               Reference Target
             </label>
             <select
               value={data.referenceTarget || ''}
               onChange={handleReferenceChange}
-              className="w-full text-xs bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              className={`w-full text-xs border rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
+                hasCustomBg 
+                  ? 'bg-white/50 border-black/10 text-slate-900' 
+                  : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+              }`}
             >
               <option value="">Select a node...</option>
               {getHierarchicalNodes().map(node => (
@@ -522,14 +584,14 @@ export default function CustomNode({ id, data, selected }: { id: string; data: N
         )}
 
         {isRepository && (
-          <div className="mt-2 pt-2 border-t border-slate-200 dark:border-slate-700 space-y-1">
+          <div className={`mt-2 pt-2 border-t space-y-1 ${hasCustomBg ? 'border-black/10' : 'border-slate-200 dark:border-slate-700'}`}>
             {data.deploymentStatus && (
               <div className="flex items-center justify-between text-[10px]">
-                <span className="text-slate-500 dark:text-slate-400">Status</span>
+                <span className={hasCustomBg ? 'text-slate-700' : 'text-slate-500 dark:text-slate-400'}>Status</span>
                 <span className={`font-medium ${
-                  data.deploymentStatus === 'success' ? 'text-emerald-600 dark:text-emerald-400' :
-                  data.deploymentStatus === 'failed' ? 'text-red-600 dark:text-red-400' :
-                  'text-amber-600 dark:text-amber-400'
+                  data.deploymentStatus === 'success' ? (hasCustomBg ? 'text-emerald-700' : 'text-emerald-600 dark:text-emerald-400') :
+                  data.deploymentStatus === 'failed' ? (hasCustomBg ? 'text-red-700' : 'text-red-600 dark:text-red-400') :
+                  (hasCustomBg ? 'text-amber-700' : 'text-amber-600 dark:text-amber-400')
                 }`}>
                   {data.deploymentStatus.toUpperCase()}
                 </span>
@@ -537,42 +599,50 @@ export default function CustomNode({ id, data, selected }: { id: string; data: N
             )}
             {data.openPrCount !== undefined && (
               <div className="flex items-center justify-between text-[10px]">
-                <span className="text-slate-500 dark:text-slate-400">Open PRs</span>
-                <span className="font-medium text-slate-700 dark:text-slate-300">{data.openPrCount}</span>
+                <span className={hasCustomBg ? 'text-slate-700' : 'text-slate-500 dark:text-slate-400'}>Open PRs</span>
+                <span className={`font-medium ${hasCustomBg ? 'text-slate-900' : 'text-slate-700 dark:text-slate-300'}`}>{data.openPrCount}</span>
               </div>
             )}
             {data.lastCommitInfo && (
               <div className="flex items-center justify-between text-[10px]">
-                <span className="text-slate-500 dark:text-slate-400">Last Commit</span>
-                <span className="font-medium text-slate-700 dark:text-slate-300 truncate max-w-[80px]" title={data.lastCommitInfo}>{data.lastCommitInfo}</span>
+                <span className={hasCustomBg ? 'text-slate-700' : 'text-slate-500 dark:text-slate-400'}>Last Commit</span>
+                <span className={`font-medium truncate max-w-[80px] ${hasCustomBg ? 'text-slate-900' : 'text-slate-700 dark:text-slate-300'}`} title={data.lastCommitInfo}>{data.lastCommitInfo}</span>
               </div>
             )}
           </div>
         )}
 
-        {(isBug || isStory) && (
-          <div className="mt-2 pt-2 border-t border-slate-200 dark:border-slate-700 space-y-1">
+        {(isBug || isStory || isJira || !!data.issueId) && (
+          <div className={`mt-2 pt-2 border-t space-y-1 ${hasCustomBg ? 'border-black/10' : 'border-slate-200 dark:border-slate-700'}`}>
+            {data.issueId && (
+              <div className="flex items-center justify-between text-[10px]">
+                <span className={hasCustomBg ? 'text-slate-700' : 'text-slate-500 dark:text-slate-400'}>Issue ID</span>
+                <span className={`font-medium ${hasCustomBg ? 'text-indigo-700' : 'text-indigo-600 dark:text-indigo-400'}`}>
+                  {data.issueId}
+                </span>
+              </div>
+            )}
             {data.status && (
               <div className="flex items-center justify-between text-[10px]">
-                <span className="text-slate-500 dark:text-slate-400">Status</span>
-                <span className="font-medium text-slate-700 dark:text-slate-300">
+                <span className={hasCustomBg ? 'text-slate-700' : 'text-slate-500 dark:text-slate-400'}>Status</span>
+                <span className={`font-medium ${hasCustomBg ? 'text-slate-900' : 'text-slate-700 dark:text-slate-300'}`}>
                   {data.status}
                 </span>
               </div>
             )}
             {data.assignee && (
               <div className="flex items-center justify-between text-[10px]">
-                <span className="text-slate-500 dark:text-slate-400">Assignee</span>
-                <span className="font-medium text-slate-700 dark:text-slate-300 truncate max-w-[80px]" title={data.assignee}>{data.assignee}</span>
+                <span className={hasCustomBg ? 'text-slate-700' : 'text-slate-500 dark:text-slate-400'}>Assignee</span>
+                <span className={`font-medium truncate max-w-[80px] ${hasCustomBg ? 'text-slate-900' : 'text-slate-700 dark:text-slate-300'}`} title={data.assignee}>{data.assignee}</span>
               </div>
             )}
             {data.priority && (
               <div className="flex items-center justify-between text-[10px]">
-                <span className="text-slate-500 dark:text-slate-400">Priority</span>
+                <span className={hasCustomBg ? 'text-slate-700' : 'text-slate-500 dark:text-slate-400'}>Priority</span>
                 <span className={`font-medium ${
-                  data.priority === 'High' || data.priority === 'Critical' ? 'text-red-600 dark:text-red-400' :
-                  data.priority === 'Medium' ? 'text-amber-600 dark:text-amber-400' :
-                  'text-emerald-600 dark:text-emerald-400'
+                  data.priority === 'High' || data.priority === 'Critical' ? (hasCustomBg ? 'text-red-700' : 'text-red-600 dark:text-red-400') :
+                  data.priority === 'Medium' ? (hasCustomBg ? 'text-amber-700' : 'text-amber-600 dark:text-amber-400') :
+                  (hasCustomBg ? 'text-emerald-700' : 'text-emerald-600 dark:text-emerald-400')
                 }`}>
                   {data.priority}
                 </span>
@@ -584,12 +654,12 @@ export default function CustomNode({ id, data, selected }: { id: string; data: N
         {data.tags && data.tags.length > 0 && !isDiamond && !isCircle && (
           <div className="flex flex-wrap gap-1 mt-2">
             {data.tags.slice(0, 3).map((tag, i) => (
-              <span key={i} className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${shape === 'note' ? 'bg-yellow-300 text-yellow-900' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
+              <span key={i} className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${hasCustomBg ? 'bg-black/10 text-slate-900' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
                 {tag}
               </span>
             ))}
             {data.tags.length > 3 && (
-              <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${shape === 'note' ? 'bg-yellow-300 text-yellow-900' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
+              <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${hasCustomBg ? 'bg-black/10 text-slate-900' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
                 +{data.tags.length - 3}
               </span>
             )}
@@ -597,9 +667,9 @@ export default function CustomNode({ id, data, selected }: { id: string; data: N
         )}
 
         {data.links && data.links.length > 0 && !isDiamond && !isCircle && (
-          <div className="flex flex-col gap-1 mt-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+          <div className={`flex flex-col gap-1 mt-2 pt-2 border-t ${hasCustomBg ? 'border-black/10' : 'border-slate-200 dark:border-slate-700'}`}>
             {data.links.slice(0, 2).map((link) => (
-              <div key={link.id} className="flex items-center gap-1.5 text-[10px] text-indigo-600 dark:text-indigo-400">
+              <div key={link.id} className={`flex items-center gap-1.5 text-[10px] ${hasCustomBg ? 'text-indigo-700' : 'text-indigo-600 dark:text-indigo-400'}`}>
                 {link.iconUrl ? (
                   <img src={link.iconUrl} alt="icon" className="w-3 h-3 object-contain" />
                 ) : link.icon && icons[link.icon as keyof typeof icons] ? (
@@ -614,7 +684,7 @@ export default function CustomNode({ id, data, selected }: { id: string; data: N
               </div>
             ))}
             {data.links.length > 2 && (
-              <span className="text-[10px] text-slate-500 dark:text-slate-400 italic">
+              <span className={`text-[10px] italic ${hasCustomBg ? 'text-slate-600' : 'text-slate-500 dark:text-slate-400'}`}>
                 +{data.links.length - 2} more links
               </span>
             )}

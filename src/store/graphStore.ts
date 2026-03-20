@@ -43,8 +43,46 @@ const getEdgeStyleProps = (relationshipType: string | undefined, hasArrow: boole
     markerType,
     strokeDasharray,
     markerStart,
-    finalHasArrow
+    finalHasArrow,
+    labelBgStyle: { fill: 'transparent' },
+    labelStyle: { fill: 'var(--edge-label-color)', fontWeight: 500 }
   };
+};
+
+// Helper function to sort nodes so that parents appear before their children
+const sortNodesByParent = (nodes: Node[]): Node[] => {
+  const sorted: Node[] = [];
+  const visited = new Set<string>();
+  const visiting = new Set<string>();
+  const nodeMap = new Map<string, Node>();
+
+  nodes.forEach(n => nodeMap.set(n.id, n));
+
+  const addNode = (node: Node) => {
+    if (visited.has(node.id)) return;
+    if (visiting.has(node.id)) {
+      // Break cycle
+      sorted.push(node);
+      visited.add(node.id);
+      return;
+    }
+
+    visiting.add(node.id);
+
+    if (node.parentId && !visited.has(node.parentId)) {
+      const parent = nodeMap.get(node.parentId);
+      if (parent) {
+        addNode(parent);
+      }
+    }
+
+    visiting.delete(node.id);
+    sorted.push(node);
+    visited.add(node.id);
+  };
+
+  nodes.forEach(addNode);
+  return sorted;
 };
 
 const debouncedSaveNode = debounce((node: AppNode, projectId?: string, cloudMode = false) => {
@@ -183,7 +221,7 @@ interface GraphStore {
   tidyUp: () => void;
   generateAIProcess: (prompt: string) => Promise<void>;
   analyzeGitHubRepo: (repoUrl: string, mode?: 'new' | 'current') => Promise<void>;
-  syncAgileBoard: (boardUrl: string, options: { epics: boolean, stories: boolean, bugs: boolean }) => Promise<void>;
+  syncAgileBoard: (boardUrl: string, options: { epics: boolean, stories: boolean, bugs: boolean }, configId?: string) => Promise<void>;
   updateRepositoryNodeData: (nodeId: string) => Promise<void>;
   autoTagNodes: () => Promise<void>;
   
@@ -232,7 +270,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
   selectedEdgeId: null,
   focusNodeId: null,
   searchQuery: '',
-  darkMode: false,
+  darkMode: localStorage.getItem('atlas_dark_mode') === 'true',
   
   past: [] as { nodes: Node[]; edges: Edge[] }[],
   future: [] as { nodes: Node[]; edges: Edge[] }[],
@@ -509,7 +547,11 @@ export const useGraphStore = create<GraphStore>((set, get) => {
   canUndo: () => get().past.length > 0,
   canRedo: () => get().future.length > 0,
   
-  toggleDarkMode: () => set((state) => ({ darkMode: !state.darkMode })),
+  toggleDarkMode: () => set((state) => {
+    const newDarkMode = !state.darkMode;
+    localStorage.setItem('atlas_dark_mode', String(newDarkMode));
+    return { darkMode: newDarkMode };
+  }),
   
   loadProjects: async () => {
     const { cloudMode, user } = get();
@@ -646,7 +688,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
         };
       });
       
-      set({ nodes, edges });
+      set({ nodes: sortNodesByParent(nodes), edges });
       
       if (cloudMode) {
         get().syncGraph(rootGraph.id);
@@ -731,7 +773,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       }));
     
     const edges: Edge[] = appEdges.map(e => {
-      const { markerType, strokeDasharray, markerStart, finalHasArrow } = getEdgeStyleProps(e.relationshipType, e.hasArrow, e.color);
+      const { markerType, strokeDasharray, markerStart, finalHasArrow, labelBgStyle, labelStyle } = getEdgeStyleProps(e.relationshipType, e.hasArrow, e.color);
       
       return {
         id: e.id,
@@ -747,13 +789,15 @@ export const useGraphStore = create<GraphStore>((set, get) => {
           strokeWidth: 2,
           strokeDasharray
         },
+        labelBgStyle,
+        labelStyle,
         markerEnd: finalHasArrow ? { type: markerType, color: e.color || '#94a3b8' } : undefined,
         markerStart,
         data: { relationshipType: e.relationshipType, color: e.color, hasArrow: finalHasArrow }
       };
     });
     
-    set({ nodes, edges, activeGraphId: graphId });
+    set({ nodes: sortNodesByParent(nodes), edges, activeGraphId: graphId });
   },
   
   drillDown: async (nodeId: string) => {
@@ -943,7 +987,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
   onNodesChange: (changes: NodeChange[]) => {
     const { nodes, activeGraphId, activeProjectId, cloudMode } = get();
     const newNodes = applyNodeChanges(changes, nodes);
-    set({ nodes: newNodes });
+    set({ nodes: sortNodesByParent(newNodes) });
     
     // Persist position/size changes
     if (!activeGraphId) return;
@@ -1026,6 +1070,8 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       }
     }
     
+    const { markerType, strokeDasharray, markerStart, finalHasArrow, labelBgStyle, labelStyle } = getEdgeStyleProps('flow', true, undefined);
+
     const newEdge: Edge = {
       id: uuidv4(),
       source: connection.source,
@@ -1034,9 +1080,12 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       targetHandle: connection.targetHandle,
       label: 'flow',
       type: 'smoothstep',
-      markerEnd: { type: MarkerType.ArrowClosed, color: '#94a3b8' },
-      style: { strokeWidth: 2 },
-      data: { relationshipType: 'flow', hasArrow: true }
+      markerEnd: finalHasArrow ? { type: markerType, color: '#94a3b8' } : undefined,
+      markerStart,
+      style: { strokeWidth: 2, strokeDasharray },
+      labelBgStyle,
+      labelStyle,
+      data: { relationshipType: 'flow', hasArrow: finalHasArrow }
     };
     
     set({ edges: addEdge(newEdge, get().edges) });
@@ -1102,9 +1151,14 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       // extent removed
       width: type === 'groupNode' ? 300 : 200,
       height: type === 'groupNode' ? 200 : 120,
+      selected: true,
     };
     
-    set({ nodes: [...get().nodes, newNode] });
+    set({ 
+      nodes: sortNodesByParent([...get().nodes.map(n => ({ ...n, selected: false })), newNode]),
+      selectedNodeId: newNode.id,
+      selectedEdgeId: null
+    });
     
     const appNode: AppNode = {
       id: newNode.id,
@@ -1288,7 +1342,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       }
     }
     
-    const { markerType, strokeDasharray, markerStart, finalHasArrow } = getEdgeStyleProps(newRelationshipType, newHasArrow, newColor);
+    const { markerType, strokeDasharray, markerStart, finalHasArrow, labelBgStyle, labelStyle } = getEdgeStyleProps(newRelationshipType, newHasArrow, newColor);
     
     let newLabel = edge.label;
     if (style.relationshipType !== undefined && style.relationshipType !== currentData.relationshipType) {
@@ -1306,6 +1360,8 @@ export const useGraphStore = create<GraphStore>((set, get) => {
         strokeWidth: 2,
         strokeDasharray
       },
+      labelBgStyle,
+      labelStyle,
       markerEnd: finalHasArrow ? { type: markerType, color: newColor || '#94a3b8' } : undefined,
       markerStart: markerStart,
       data: { ...currentData, color: newColor, hasArrow: finalHasArrow, relationshipType: newRelationshipType }
@@ -1432,7 +1488,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       return n;
     });
 
-    set({ nodes: [{ ...groupNode, selected: true }, ...updatedNodes], selectedNodeId: groupId });
+    set({ nodes: sortNodesByParent([{ ...groupNode, selected: true }, ...updatedNodes]), selectedNodeId: groupId });
 
     const { activeProjectId, cloudMode } = get();
     const appGroupNode: AppNode = {
@@ -1494,7 +1550,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
 
     updatedNodes = updatedNodes.filter(n => !groupIdsToDelete.has(n.id));
 
-    set({ nodes: updatedNodes });
+    set({ nodes: sortNodesByParent(updatedNodes) });
 
     for (const groupId of groupIdsToDelete) {
       await storageService.deleteNode(groupId, activeGraphId || '', activeProjectId || undefined, cloudMode);
@@ -1648,7 +1704,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       };
     });
 
-    set({ nodes: newNodes });
+    set({ nodes: sortNodesByParent(newNodes) });
     
     // Persist new positions
     const { activeGraphId, activeProjectId, cloudMode } = get();
@@ -1714,6 +1770,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     const finalNewEdges: Edge[] = result.edges.map(e => {
       const sourceId = idMap[e.source] || e.source;
       const targetId = idMap[e.target] || e.target;
+      const { markerType, strokeDasharray, markerStart, finalHasArrow, labelBgStyle, labelStyle } = getEdgeStyleProps(e.label, true, undefined);
       
       return {
         id: uuidv4(),
@@ -1721,8 +1778,12 @@ export const useGraphStore = create<GraphStore>((set, get) => {
         target: targetId,
         label: e.label,
         type: 'smoothstep',
-        markerEnd: { type: MarkerType.ArrowClosed, color: '#94a3b8' },
-        data: { relationshipType: e.label, hasArrow: true }
+        markerEnd: finalHasArrow ? { type: markerType, color: '#94a3b8' } : undefined,
+        markerStart,
+        style: { strokeWidth: 2, strokeDasharray },
+        labelBgStyle,
+        labelStyle,
+        data: { relationshipType: e.label, hasArrow: finalHasArrow }
       };
     });
 
@@ -1893,6 +1954,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
         const sourceId = pathMap[e.source];
         const targetId = pathMap[e.target];
         if (!sourceId || !targetId) return null;
+        const { markerType, strokeDasharray, markerStart, finalHasArrow, labelBgStyle, labelStyle } = getEdgeStyleProps(e.label, true, undefined);
         
         return {
           id: uuidv4(),
@@ -1900,8 +1962,12 @@ export const useGraphStore = create<GraphStore>((set, get) => {
           target: targetId,
           label: e.label,
           type: 'smoothstep',
-          markerEnd: { type: MarkerType.ArrowClosed, color: '#94a3b8' },
-          data: { relationshipType: e.label, hasArrow: true }
+          markerEnd: finalHasArrow ? { type: markerType, color: '#94a3b8' } : undefined,
+          markerStart,
+          style: { strokeWidth: 2, strokeDasharray },
+          labelBgStyle,
+          labelStyle,
+          data: { relationshipType: e.label, hasArrow: finalHasArrow }
         };
       }).filter(Boolean) as Edge[];
 
@@ -1941,14 +2007,118 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     }
   },
 
-  syncAgileBoard: async (boardUrl: string, options: { epics: boolean, stories: boolean, bugs: boolean }) => {
-    const { activeGraphId, activeProjectId, cloudMode, githubToken } = get();
+  syncAgileBoard: async (boardUrl: string, options: { epics: boolean, stories: boolean, bugs: boolean }, configId?: string) => {
+    const { activeGraphId, activeProjectId, cloudMode, githubToken, issueManagementConfigs } = get();
     if (!activeGraphId) return;
+
+    if (configId && configId !== 'github') {
+      const config = issueManagementConfigs.find(c => c.id === configId);
+      if (!config) {
+        throw new Error("Configuration not found.");
+      }
+
+      if (config.provider === 'Jira') {
+        const jql = boardUrl.includes('=') ? boardUrl : `project = "${boardUrl}" AND statusCategory != Done`;
+        
+        try {
+          // Jira REST API v2
+          const url = new URL(`${config.url.replace(/\/$/, '')}/rest/api/2/search`);
+          url.searchParams.append('jql', jql);
+          url.searchParams.append('maxResults', '100');
+          
+          const headers: Record<string, string> = {
+            'Accept': 'application/json',
+            'Authorization': config.pat.includes(':') ? `Basic ${btoa(config.pat)}` : `Bearer ${config.pat}`
+          };
+
+          const response = await fetch(url.toString(), { headers });
+          if (!response.ok) {
+            throw new Error(`Jira API error: ${response.statusText}`);
+          }
+          const data = await response.json();
+          const issues = data.issues || [];
+
+          const newNodes: Node[] = [];
+          const appNodes: AppNode[] = [];
+          let xOffset = 100;
+          let yOffset = 100;
+
+          for (const issue of issues) {
+            const issueType = issue.fields.issuetype?.name?.toLowerCase() || '';
+            
+            let isEpic = issueType.includes('epic');
+            let isBug = issueType.includes('bug');
+            let isStory = issueType.includes('story') || issueType.includes('task');
+
+            if (!isEpic && !isBug && !isStory) {
+              isStory = true;
+            }
+
+            if ((isEpic && !options.epics) || (isBug && !options.bugs) || (isStory && !options.stories)) {
+              continue;
+            }
+
+            const shape = isBug ? 'bug' : isStory ? 'story' : 'rectangle';
+            const nodeType = isBug ? 'bug' : isStory ? 'story' : 'epic';
+
+            const newNodeId = uuidv4();
+            const newNode: Node = {
+              id: newNodeId,
+              type: 'customNode',
+              position: { x: xOffset, y: yOffset },
+              data: {
+                title: issue.fields.summary,
+                description: issue.fields.description ? (typeof issue.fields.description === 'string' ? issue.fields.description.substring(0, 200) : 'Jira Issue') : '',
+                nodeType: nodeType,
+                shape: shape,
+                status: issue.fields.status?.name || 'To Do',
+                assignee: issue.fields.assignee?.displayName || 'Unassigned',
+                priority: issue.fields.priority?.name || 'Normal',
+                issueId: issue.key,
+                issueConfigId: configId,
+                tags: ['jira-sync', issueType],
+                links: [{ url: `${config.url.replace(/\/$/, '')}/browse/${issue.key}`, label: 'Jira Issue' }],
+                codeSnippets: [],
+                metadata: {},
+                isExpanded: false
+              }
+            };
+
+            newNodes.push(newNode);
+            
+            appNodes.push({
+              id: newNodeId,
+              graphId: activeGraphId,
+              position: newNode.position,
+              type: newNode.type || 'customNode',
+              data: newNode.data as any,
+            });
+
+            xOffset += 300;
+            if (xOffset > 1000) {
+              xOffset = 100;
+              yOffset += 200;
+            }
+          }
+
+          set({ nodes: sortNodesByParent([...get().nodes, ...newNodes]) });
+
+          for (const appNode of appNodes) {
+            await storageService.saveNode(appNode, activeProjectId || undefined, cloudMode);
+          }
+          return;
+        } catch (error) {
+          console.error("Failed to sync Jira board:", error);
+          throw error;
+        }
+      } else {
+        throw new Error(`Provider ${config.provider} is not yet fully implemented for Agile Sync.`);
+      }
+    }
 
     const match = boardUrl.match(/github\.com\/([^/]+)\/([^/]+)/);
     if (!match) {
-      console.error("Only GitHub repository URLs are supported for Agile Sync currently.");
-      return;
+      throw new Error("Only GitHub repository URLs are supported for Agile Sync currently unless a Jira configuration is selected.");
     }
     const [, owner, repo] = match;
 
@@ -2005,6 +2175,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
             status: issue.state,
             assignee: issue.assignee ? issue.assignee.login : 'Unassigned',
             priority: labels.find((l: string) => l.includes('priority')) || 'Normal',
+            issueId: `#${issue.number}`,
             tags: ['agile-sync', ...issue.labels.map((l: any) => l.name)],
             links: [{ url: issue.html_url, label: 'GitHub Issue' }],
             codeSnippets: [],
@@ -2030,7 +2201,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
         }
       }
 
-      set({ nodes: [...get().nodes, ...newNodes] });
+      set({ nodes: sortNodesByParent([...get().nodes, ...newNodes]) });
 
       for (const appNode of appNodes) {
         await storageService.saveNode(appNode, activeProjectId || undefined, cloudMode);
@@ -2140,7 +2311,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
         return node;
       });
 
-      set({ nodes: updatedNodes });
+      set({ nodes: sortNodesByParent(updatedNodes) });
       
       // Persist changes
       const { activeProjectId, cloudMode } = get();
@@ -2291,7 +2462,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
         } as Node;
       });
       
-      set({ nodes: mergedNodes });
+      set({ nodes: sortNodesByParent(mergedNodes) });
     });
 
     // Listen for edges
@@ -2424,7 +2595,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
         activeProjectId
       );
     } else {
-      set({ nodes: snapshot.nodes, edges: snapshot.edges });
+      set({ nodes: sortNodesByParent(snapshot.nodes), edges: snapshot.edges });
     }
   },
 

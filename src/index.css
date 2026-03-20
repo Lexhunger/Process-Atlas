@@ -2,6 +2,14 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+:root {
+  --edge-label-color: #000000;
+}
+
+.dark {
+  --edge-label-color: #ffffff;
+}
+
 /* React Flow Resizer Improvements */
 .react-flow__node-resizer .react-flow__resize-control.handle {
   width: 14px !important;

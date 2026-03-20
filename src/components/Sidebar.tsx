@@ -39,6 +39,12 @@ export default function Sidebar({ isOpen, onToggle }: { isOpen: boolean; onToggl
     loadTemplates();
   }, [loadTemplates]);
 
+  useEffect(() => {
+    if (activeProjectId) {
+      setActiveTab('library');
+    }
+  }, [activeProjectId]);
+
   const handleCreateProject = async (e: React.FormEvent) => {
     e.preventDefault();
     if (newProjectName.trim()) {

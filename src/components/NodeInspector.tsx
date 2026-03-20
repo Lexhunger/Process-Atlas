@@ -39,6 +39,12 @@ export default function NodeInspector({ isOpen, setIsOpen }: { isOpen: boolean; 
   const [showTypeInput, setShowTypeInput] = useState(false);
   const [newTypeName, setNewTypeName] = useState('');
 
+  useEffect(() => {
+    if ((selectedNodeId || selectedEdgeId) && !isOpen) {
+      setIsOpen(true);
+    }
+  }, [selectedNodeId, selectedEdgeId, isOpen, setIsOpen]);
+
   if (!isOpen) {
     return (
       <div className="w-12 h-full bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col items-center py-4 z-50">
@@ -448,7 +454,7 @@ export default function NodeInspector({ isOpen, setIsOpen }: { isOpen: boolean; 
                 </select>
               </div>
 
-              {data.shape === 'jira' && (
+              {(data.shape === 'jira' || data.nodeType === 'bug' || data.nodeType === 'story' || data.nodeType === 'epic' || !!data.issueId) && (
                 <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-lg space-y-3">
                   <div className="flex items-center gap-2 text-blue-700 dark:text-blue-400 font-bold text-[10px] uppercase tracking-wider">
                     <SettingsIcon className="w-3 h-3" /> Issue Management Configuration
@@ -663,6 +669,22 @@ export default function NodeInspector({ isOpen, setIsOpen }: { isOpen: boolean; 
                   <option value="business-operational">Business Operational</option>
                   <option value="non-critical">Non-Critical</option>
                 </select>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-medium text-slate-700 dark:text-slate-300">Scale</label>
+                  <span className="text-xs text-slate-500">{data.scale || 1}x</span>
+                </div>
+                <input
+                  type="range"
+                  min="0.5"
+                  max="3"
+                  step="0.1"
+                  value={data.scale || 1}
+                  onChange={(e) => handleChange('scale', parseFloat(e.target.value))}
+                  className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                />
               </div>
 
               <div>

@@ -9,4 +9,9 @@ export const PASTEL_COLORS = [
   { name: 'Apricot', value: '#FFC8A2' },
   { name: 'Vanilla', value: '#F3E5AB' },
   { name: 'Light Gray', value: '#F0F0F0' },
+  { name: 'Lilac', value: '#C8A2C8' },
+  { name: 'Coral', value: '#FFB4B4' },
+  { name: 'Sky', value: '#B4E4FF' },
+  { name: 'Sage', value: '#C1E1C1' },
+  { name: 'White', value: '#FFFFFF' },
 ];

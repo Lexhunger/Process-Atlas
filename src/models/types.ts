@@ -79,6 +79,7 @@ export interface NodeData extends Record<string, unknown> {
   lastCommitInfo?: string;
   // Bug / User Story Node fields
   issueId?: string;
+  issueConfigId?: string;
   status?: string;
   severity?: string;
   storyId?: string;

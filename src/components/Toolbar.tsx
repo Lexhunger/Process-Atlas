@@ -3,7 +3,7 @@ import {
   Search, Download, Upload, Moon, Sun, Combine, Ungroup, Undo2, Redo2, 
   Wand2, Layout, BarChart3, Sparkles, Play, Square, FastForward, X, 
   ChevronDown, MonitorPlay, FileText, Image as ImageIcon, Zap, Tags, Settings as SettingsIcon,
-  Github, LogIn, Activity, LogOut, User, Cloud, History, MessageSquare, Layout as LayoutIcon, Share2, RefreshCw, Network
+  Github, LogIn, Activity, LogOut, User, Cloud, History, MessageSquare, Layout as LayoutIcon, Share2, RefreshCw, Network, Loader2
 } from 'lucide-react';
 import { useRef, useEffect, useState } from 'react';
 import Dashboard from './Dashboard';
@@ -64,7 +64,8 @@ export default function Toolbar({
     setExportFormat,
     aiEnabled,
     impactAnalysisMode,
-    setImpactAnalysisMode
+    setImpactAnalysisMode,
+    issueManagementConfigs
   } = useGraphStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const toolsRef = useRef<HTMLDivElement>(null);
@@ -87,10 +88,18 @@ export default function Toolbar({
   const [isSavingToCloud, setIsSavingToCloud] = useState(false);
   const [hasSavedToCloud, setHasSavedToCloud] = useState(false);
   
-  const [agileBoardUrl, setAgileBoardUrl] = useState('');
-  const [syncEpics, setSyncEpics] = useState(true);
-  const [syncStories, setSyncStories] = useState(true);
-  const [syncBugs, setSyncBugs] = useState(false);
+  interface SyncSourceConfig {
+    id: string;
+    configId: string;
+    query: string;
+    syncEpics: boolean;
+    syncStories: boolean;
+    syncBugs: boolean;
+  }
+  const [syncSources, setSyncSources] = useState<SyncSourceConfig[]>([
+    { id: '1', configId: 'github', query: '', syncEpics: true, syncStories: true, syncBugs: false }
+  ]);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -737,25 +746,32 @@ export default function Toolbar({
                       <span className="text-[10px] text-slate-500 font-normal">Analytics & Insights</span>
                     </div>
                   </button>
+
+                  <button
+                    onClick={() => {
+                      setImpactAnalysisMode(!impactAnalysisMode);
+                      setIsToolsOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors group ${
+                      impactAnalysisMode ? 'text-red-400 bg-red-900/20' : 'text-slate-300 hover:bg-slate-800'
+                    }`}
+                  >
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
+                      impactAnalysisMode ? 'bg-red-500/20' : 'bg-slate-800 group-hover:bg-slate-700'
+                    }`}>
+                      <Activity className="w-4 h-4" />
+                    </div>
+                    <div className="flex flex-col items-start">
+                      <span>Impact Analysis</span>
+                      <span className="text-[10px] text-slate-500 font-normal">Visualize downstream effects</span>
+                    </div>
+                  </button>
                 </div>
               </div>
             )}
           </div>
 
           <div className="w-px h-6 bg-slate-700 mx-2"></div>
-
-          <button
-            onClick={() => setImpactAnalysisMode(!impactAnalysisMode)}
-            className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-              impactAnalysisMode 
-                ? 'bg-red-500/20 text-red-400 border border-red-500/30' 
-                : 'text-slate-300 hover:text-white hover:bg-slate-800'
-            }`}
-            title="Toggle Impact Analysis Mode"
-          >
-            <Activity className="w-4 h-4" />
-            Impact Analysis
-          </button>
 
           {isSimulating && (
             <>
@@ -1298,54 +1314,114 @@ export default function Toolbar({
                 </button>
               </div>
 
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 mb-2 uppercase">Board URL or Project Key</label>
-                  <input
-                    type="text"
-                    value={agileBoardUrl}
-                    onChange={(e) => setAgileBoardUrl(e.target.value)}
-                    placeholder="e.g., https://github.com/owner/repo"
-                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-                    autoFocus
-                  />
-                </div>
+              <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+                {syncSources.map((source, index) => (
+                  <div key={source.id} className="p-4 bg-slate-800/50 border border-slate-700 rounded-xl space-y-4 relative group">
+                    {syncSources.length > 1 && (
+                      <button
+                        onClick={() => setSyncSources(syncSources.filter(s => s.id !== source.id))}
+                        className="absolute top-2 right-2 p-1 text-slate-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase">Integration Source {index + 1}</label>
+                      <select
+                        value={source.configId}
+                        onChange={(e) => {
+                          const newSources = [...syncSources];
+                          newSources[index].configId = e.target.value;
+                          setSyncSources(newSources);
+                        }}
+                        className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                      >
+                        <option value="github">GitHub (Default)</option>
+                        {issueManagementConfigs.map(config => (
+                          <option key={config.id} value={config.id}>
+                            {config.provider.charAt(0).toUpperCase() + config.provider.slice(1)} - {config.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 mb-2 uppercase">Sync Options</label>
-                  <div className="space-y-2">
-                    <label className="flex items-center gap-2 text-sm text-slate-300">
-                      <input 
-                        type="checkbox" 
-                        checked={syncEpics}
-                        onChange={(e) => setSyncEpics(e.target.checked)}
-                        className="rounded border-slate-700 bg-slate-800 text-blue-500 focus:ring-blue-500" 
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase">
+                        {source.configId === 'github' ? 'Board URL or Project Key' : 'Project Key or JQL Query'}
+                      </label>
+                      <input
+                        type="text"
+                        value={source.query}
+                        onChange={(e) => {
+                          const newSources = [...syncSources];
+                          newSources[index].query = e.target.value;
+                          setSyncSources(newSources);
+                        }}
+                        placeholder={source.configId === 'github' ? "e.g., https://github.com/owner/repo" : "e.g., PROJ or project=PROJ AND status='In Progress'"}
+                        className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
                       />
-                      Include Epics
-                    </label>
-                    <label className="flex items-center gap-2 text-sm text-slate-300">
-                      <input 
-                        type="checkbox" 
-                        checked={syncStories}
-                        onChange={(e) => setSyncStories(e.target.checked)}
-                        className="rounded border-slate-700 bg-slate-800 text-blue-500 focus:ring-blue-500" 
-                      />
-                      Include User Stories
-                    </label>
-                    <label className="flex items-center gap-2 text-sm text-slate-300">
-                      <input 
-                        type="checkbox" 
-                        checked={syncBugs}
-                        onChange={(e) => setSyncBugs(e.target.checked)}
-                        className="rounded border-slate-700 bg-slate-800 text-blue-500 focus:ring-blue-500" 
-                      />
-                      Include Bugs
-                    </label>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase">Sync Options</label>
+                      <div className="flex flex-wrap gap-4">
+                        <label className="flex items-center gap-2 text-xs text-slate-300">
+                          <input 
+                            type="checkbox" 
+                            checked={source.syncEpics}
+                            onChange={(e) => {
+                              const newSources = [...syncSources];
+                              newSources[index].syncEpics = e.target.checked;
+                              setSyncSources(newSources);
+                            }}
+                            className="rounded border-slate-700 bg-slate-800 text-blue-500 focus:ring-blue-500" 
+                          />
+                          Epics
+                        </label>
+                        <label className="flex items-center gap-2 text-xs text-slate-300">
+                          <input 
+                            type="checkbox" 
+                            checked={source.syncStories}
+                            onChange={(e) => {
+                              const newSources = [...syncSources];
+                              newSources[index].syncStories = e.target.checked;
+                              setSyncSources(newSources);
+                            }}
+                            className="rounded border-slate-700 bg-slate-800 text-blue-500 focus:ring-blue-500" 
+                          />
+                          Stories
+                        </label>
+                        <label className="flex items-center gap-2 text-xs text-slate-300">
+                          <input 
+                            type="checkbox" 
+                            checked={source.syncBugs}
+                            onChange={(e) => {
+                              const newSources = [...syncSources];
+                              newSources[index].syncBugs = e.target.checked;
+                              setSyncSources(newSources);
+                            }}
+                            className="rounded border-slate-700 bg-slate-800 text-blue-500 focus:ring-blue-500" 
+                          />
+                          Bugs
+                        </label>
+                      </div>
+                    </div>
                   </div>
-                </div>
+                ))}
+
+                <button
+                  onClick={() => setSyncSources([...syncSources, { id: Date.now().toString(), configId: 'github', query: '', syncEpics: false, syncStories: false, syncBugs: true }])}
+                  className="w-full py-2 border-2 border-dashed border-slate-700 hover:border-slate-500 text-slate-400 hover:text-slate-300 rounded-xl text-xs font-bold transition-colors"
+                >
+                  + Add Another Source
+                </button>
 
                 <div className="pt-2">
                   <button
+                    onClick={() => {
+                      setIsAgileSyncModalOpen(false);
+                      setIsSettingsOpen(true);
+                    }}
                     className="w-full flex items-center justify-center gap-2 bg-slate-800 border border-slate-700 hover:bg-slate-700 text-white px-4 py-2.5 rounded-xl text-xs font-bold transition-all"
                   >
                     <SettingsIcon className="w-4 h-4" />
@@ -1354,7 +1430,7 @@ export default function Toolbar({
                 </div>
 
                 <p className="text-[10px] text-slate-500 leading-relaxed italic">
-                  Note: Currently supports GitHub repository URLs to sync open issues as nodes. Ensure your GitHub token is set in settings.
+                  Note: You can sync from multiple sources at once. For example, sync Epics/Stories from Jira and Bugs from GitHub.
                 </p>
               </div>
               <div className="mt-6 flex items-center justify-end gap-3">
@@ -1365,14 +1441,30 @@ export default function Toolbar({
                   Cancel
                 </button>
                 <button
-                  onClick={() => {
-                    syncAgileBoard(agileBoardUrl, { epics: syncEpics, stories: syncStories, bugs: syncBugs });
-                    setIsAgileSyncModalOpen(false);
+                  onClick={async () => {
+                    setIsSyncing(true);
+                    try {
+                      for (const source of syncSources) {
+                        if (!source.query.trim() || (!source.syncEpics && !source.syncStories && !source.syncBugs)) continue;
+                        await syncAgileBoard(
+                          source.query, 
+                          { epics: source.syncEpics, stories: source.syncStories, bugs: source.syncBugs },
+                          source.configId === 'github' ? undefined : source.configId
+                        );
+                      }
+                      setIsAgileSyncModalOpen(false);
+                    } catch (error) {
+                      console.error(error);
+                      alert(error instanceof Error ? error.message : "Failed to sync agile board.");
+                    } finally {
+                      setIsSyncing(false);
+                    }
                   }}
-                  disabled={!agileBoardUrl.trim() || (!syncEpics && !syncStories && !syncBugs)}
+                  disabled={syncSources.every(s => !s.query.trim() || (!s.syncEpics && !s.syncStories && !s.syncBugs)) || isSyncing}
                   className="px-6 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-xl text-sm font-bold shadow-lg shadow-blue-900/20 transition-all flex items-center gap-2"
                 >
-                  <RefreshCw className="w-4 h-4" /> Sync Now
+                  {isSyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} 
+                  {isSyncing ? 'Syncing...' : 'Sync Now'}
                 </button>
               </div>
             </div>
